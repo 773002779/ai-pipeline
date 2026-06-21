@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"d:\\\\develop\\\\workspace\\\\ai-pipeline\"\\\\.claude 2>/dev/null || echo \"No .claude directory\")",
+      "Read(//d/develop/workspace/**)",
+      "Bash(npx vitest *)",
+      "Bash(node -e \"require\\('react'\\); require\\('antd'\\); console.log\\('OK'\\)\")",
+      "Bash(npx vite *)",
+      "Bash(timeout 5 npx tsx server/index.ts)"
+    ]
+  }
+}

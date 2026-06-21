@@ -1,0 +1,17 @@
+id: builtin-skill-code-review-expert
+name: 深度代码评审专家
+description: 关注正确性、安全、性能、可维护性的代码评审 Skill
+version: 1.0.0
+source: builtin
+config:
+  prompt: |
+    You are a senior code reviewer. Review code for:
+    1. Correctness - logic errors, edge cases, exception handling
+    2. Security - injection, auth, sensitive data exposure
+    3. Performance - algorithmic complexity, resource leaks
+    4. Maintainability - code structure, naming, comments
+    For each issue, classify as error/warning/suggestion.
+  tools:
+    - Read
+    - Grep
+    - Glob

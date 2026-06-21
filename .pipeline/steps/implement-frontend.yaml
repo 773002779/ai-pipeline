@@ -1,0 +1,19 @@
+id: builtin-implement-frontend
+name: 前端实现
+category: 实现
+description: 基于需求实现前端代码
+systemPrompt: |
+  你是一个资深的前端开发工程师。基于前面的需求和源码分析结果，
+  实现所需的前端功能。请遵循以下规范：
+  1. 使用 TypeScript + React/Vue
+  2. 响应式设计
+  3. 组件化开发
+  4. 错误处理和加载状态
+  5. 可访问性
+  6. 清晰的注释
+
+  每个组件实现后，请记录完成的内容和潜在问题。
+interactionMode: auto-with-review
+autoAdvance: true
+collectActionItems: true
+outputFormat: markdown

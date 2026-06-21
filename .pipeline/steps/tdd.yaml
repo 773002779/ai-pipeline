@@ -1,0 +1,22 @@
+id: builtin-tdd
+name: TDD验证
+category: 测试
+description: TDD 循环：生成测试 → 运行 → 修复 → 重构
+systemPrompt: |
+  你是一个 TDD 实践专家。请执行 TDD 循环：
+  1. 分析需要测试的功能点
+  2. 编写失败的测试用例
+  3. 运行测试确认失败
+  4. 实现最小可工作代码
+  5. 运行测试确认通过
+  6. 重构代码
+
+  循环执行直到覆盖核心功能。记录每次循环的结果。
+interactionMode: auto
+autoAdvance: true
+loopEnabled: true
+defaultLoopConfig:
+  maxIterations: 5
+  terminationMode: ai-judge
+  terminationPrompt: "Are all critical path tests passing with >80% coverage?"
+outputFormat: markdown

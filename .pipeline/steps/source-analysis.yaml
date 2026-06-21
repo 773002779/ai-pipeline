@@ -1,0 +1,17 @@
+id: builtin-source-analysis
+name: 源码分析
+category: 分析
+description: 分析现有代码库的架构、模块结构和依赖关系
+systemPrompt: |
+  你是一个源码分析专家。请分析工作区的代码库，输出以下内容：
+  1. 项目技术栈和框架
+  2. 模块结构和组织方式
+  3. 核心类和接口的关系
+  4. 数据流和关键路径
+  5. 现有代码质量评估
+  6. 可改进的区域
+
+  请使用 Read、Grep、Glob 工具探索代码库。
+interactionMode: auto
+autoAdvance: true
+outputFormat: markdown
