@@ -1,4 +1,4 @@
-import { Database as SqlJsDatabase } from 'sql.js';
+import { Database as SqlJsDatabase, SqlValue } from 'sql.js';
 
 /**
  * Thin wrapper around sql.js to provide a simpler API
@@ -8,7 +8,7 @@ export class DbHelper {
   constructor(private db: SqlJsDatabase) {}
 
   /** Run a statement with parameters — returns the raw db */
-  run(sql: string, params: unknown[] = []): SqlJsDatabase {
+  run(sql: string, params: SqlValue[] = []): SqlJsDatabase {
     const stmt = this.db.prepare(sql);
     if (params.length > 0) {
       stmt.bind(params);
@@ -19,7 +19,7 @@ export class DbHelper {
   }
 
   /** Get a single row as object */
-  get<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T | undefined {
+  get<T = Record<string, unknown>>(sql: string, params: SqlValue[] = []): T | undefined {
     const stmt = this.db.prepare(sql);
     if (params.length > 0) {
       stmt.bind(params);
@@ -34,7 +34,7 @@ export class DbHelper {
   }
 
   /** Get all rows as objects */
-  all<T = Record<string, unknown>>(sql: string, params: unknown[] = []): T[] {
+  all<T = Record<string, unknown>>(sql: string, params: SqlValue[] = []): T[] {
     const results: T[] = [];
     const stmt = this.db.prepare(sql);
     if (params.length > 0) {

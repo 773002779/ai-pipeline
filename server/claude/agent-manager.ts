@@ -9,10 +9,19 @@
  * - Options.cwd → 工作目录
  */
 
-import type { SDKSessionOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import { v4 as uuidv4 } from 'uuid';
 import type { SessionChannel } from '../ws/session-channel';
-import type { StepTemplate, Resource, Workspace, Message } from '../../shared/types';
+import { waitForPermission } from '../ws/permission-store';
+import type { StepTemplate, Resource, Workspace } from '../../shared/types';
+
+// On Windows, the SDK CLI requires git-bash — common install locations
+const GIT_BASH_CANDIDATES = [
+  'D:\\develop\\Git\\usr\\bin\\bash.exe',
+  'C:\\Program Files\\Git\\bin\\bash.exe',
+  'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
+  'C:\\Git\\bin\\bash.exe',
+];
 
 export interface AgentCallConfig {
   sessionId: string;
@@ -42,73 +51,16 @@ export class ClaudeAgentManager {
       // Build the system prompt by merging template + resources
       const systemPrompt = this.buildSystemPrompt(config);
 
-      // Build tools list
-      const tools = this.buildToolsList(config);
-
-      // Build MCP server configs
-      const mcpServers = this.buildMcpServers(config);
-
-      // Resolve model: template override → agent config → env → default
-      const resolvedModel =
-        template.model ||
-        (config.resolvedAgent?.config as any)?.model ||
-        process.env.ANTHROPIC_MODEL ||
-        undefined; // Let SDK/CLI use its own default
-
-      // Build SDK options
-      // On Windows, the SDK CLI requires git-bash — resolve and set the env var
-      const env = { ...process.env } as Record<string, string | undefined>;
-      if (process.platform === 'win32' && !env.CLAUDE_CODE_GIT_BASH_PATH) {
-        // Try common Git Bash install locations
-        const candidates = [
-          'D:\\develop\\Git\\usr\\bin\\bash.exe',
-          'C:\\Program Files\\Git\\bin\\bash.exe',
-          'C:\\Program Files\\Git\\usr\\bin\\bash.exe',
-          'C:\\Git\\bin\\bash.exe',
-        ];
-        const fs = require('fs');
-        for (const candidate of candidates) {
-          if (fs.existsSync(candidate)) {
-            env.CLAUDE_CODE_GIT_BASH_PATH = candidate;
-            break;
-          }
-        }
-      }
-
-      const sdkOptions: Record<string, unknown> = {
-        cwd: config.workspaces[0]?.path || process.cwd(),
-        // Additional directories for multi-workspace
-        additionalDirectories: config.workspaces.slice(1).map(w => w.path),
-        // Use permissionMode for non-interactive execution
-        permissionMode: 'acceptEdits' as const,
-        // Pass env with git-bash path on Windows
-        env,
-        // Disable persistence for cleaner execution
-        persistSession: false,
-      };
-
-      // Set tools if explicitly configured, otherwise let CLI use its defaults
-      if (tools.length > 0) {
-        sdkOptions.tools = tools;
-      }
-
-      // Only set model if explicitly resolved (let CLI default otherwise)
-      if (resolvedModel) {
-        sdkOptions.model = resolvedModel;
-      }
-
-      // Only set maxThinkingTokens if template explicitly requests it
-      // (DeepSeek & other proxies may not support extended thinking)
-      if (template.maxTokens && template.maxTokens > 0) {
-        sdkOptions.maxThinkingTokens = template.maxTokens;
-      }
+      // Build SDK options (tools, model, MCP servers, permission hook, env)
+      const sdkOptions = this.buildSdkOptions(config);
 
       yield {
         type: 'agent_config',
         stepId,
         data: {
-          model: resolvedModel || '(CLI default)',
-          tools: tools.length,
+          model: (sdkOptions.model as string) || '(CLI default)',
+          tools: Array.isArray(sdkOptions.tools) ? (sdkOptions.tools as unknown[]).length : 0,
+          mcpServers: sdkOptions.mcpServers ? Object.keys(sdkOptions.mcpServers as object) : [],
           cwd: sdkOptions.cwd,
         },
       };
@@ -213,6 +165,65 @@ export class ClaudeAgentManager {
         timestamp: new Date().toISOString(),
       };
     }
+  }
+
+  /**
+   * Build the SDK query options: cwd, tools, model, MCP servers,
+   * permission hook and platform env.
+   */
+  buildSdkOptions(config: AgentCallConfig): Record<string, unknown> {
+    const env = { ...process.env } as Record<string, string | undefined>;
+    if (process.platform === 'win32' && !env.CLAUDE_CODE_GIT_BASH_PATH) {
+      const fs = require('fs');
+      for (const candidate of GIT_BASH_CANDIDATES) {
+        if (fs.existsSync(candidate)) {
+          env.CLAUDE_CODE_GIT_BASH_PATH = candidate;
+          break;
+        }
+      }
+    }
+
+    const sdkOptions: Record<string, unknown> = {
+      cwd: config.workspaces[0]?.path || process.cwd(),
+      // Additional directories for multi-workspace
+      additionalDirectories: config.workspaces.slice(1).map(w => w.path),
+      // Permission hook: bridges to WebSocket for user confirmation
+      canUseTool: this.createPermissionHook(config.wsChannel, config.sessionId),
+      // Pass env with git-bash path on Windows
+      env,
+      // Disable persistence for cleaner execution
+      persistSession: false,
+    };
+
+    // Set tools if explicitly configured, otherwise let CLI use its defaults
+    const tools = this.buildToolsList(config);
+    if (tools.length > 0) {
+      sdkOptions.tools = tools;
+    }
+
+    // Resolve model: template override → agent config → env → default
+    const resolvedModel =
+      config.template.model ||
+      (config.resolvedAgent?.config as { model?: string })?.model ||
+      process.env.ANTHROPIC_MODEL ||
+      undefined; // Let SDK/CLI use its own default
+    if (resolvedModel) {
+      sdkOptions.model = resolvedModel;
+    }
+
+    // Only set maxThinkingTokens if template explicitly requests it
+    // (DeepSeek & other proxies may not support extended thinking)
+    if (config.template.maxTokens && config.template.maxTokens > 0) {
+      sdkOptions.maxThinkingTokens = config.template.maxTokens;
+    }
+
+    // MCP servers referenced by the step
+    const mcpServers = this.buildMcpServers(config);
+    if (Object.keys(mcpServers).length > 0) {
+      sdkOptions.mcpServers = mcpServers;
+    }
+
+    return sdkOptions;
   }
 
   /**
@@ -335,9 +346,7 @@ If you find issues, bugs, or suggestions, record them as action items with sever
       decisionReason?: string;
       toolUseID: string;
     }): Promise<PermissionResult> => {
-      // If in allowedTools, auto-allow
-      // Otherwise, ask via WebSocket
-      const permId = `perm-${Date.now()}`;
+      const permId = uuidv4();
 
       // Send permission request to frontend
       wsChannel.broadcastToSession(sessionId, {
@@ -354,11 +363,9 @@ If you find issues, bugs, or suggestions, record them as action items with sever
         },
       });
 
-      // Wait for user response via the session's permission queue
-      // Default timeout: 5 minutes
-      const result = await this.waitForPermissionResponse(permId, options.signal);
-
-      return result;
+      // Wait for user response via the shared permission store.
+      // The abort signal denies immediately (e.g. session cancelled).
+      return waitForPermission(permId, sessionId, 300_000, options.signal);
     };
   }
 
@@ -376,40 +383,6 @@ If you find issues, bugs, or suggestions, record them as action items with sever
     }
 
     return 'low';
-  }
-
-  /**
-   * Wait for user permission response via a Promise that will be resolved by the WS handler
-   */
-  private async waitForPermissionResponse(
-    permId: string,
-    signal: AbortSignal,
-  ): Promise<PermissionResult> {
-    // In the full implementation, this would use a Map of pending permissions
-    // that the WebSocket handler resolves when the user responds.
-    // For now, auto-deny after timeout for safety.
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve({
-          behavior: 'deny',
-          message: 'Permission request timed out. Please respond via the UI.',
-        });
-      }, 300000); // 5 minutes
-
-      signal.addEventListener('abort', () => {
-        clearTimeout(timeout);
-        resolve({ behavior: 'deny', message: 'Operation cancelled.' });
-      });
-
-      // Placeholder: In full implementation, the WS module calls resolve()
-      // when the user clicks allow/deny in the frontend.
-      // For now, we'll auto-approve read-only tools to keep things moving
-      resolve({
-        behavior: 'allow',
-        updatedInput: {},
-        toolUseID: undefined,
-      });
-    });
   }
 
   private extractMessageData(message: Record<string, unknown>): {

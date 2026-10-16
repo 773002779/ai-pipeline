@@ -1,4 +1,5 @@
 import { DbHelper } from '../helper';
+import type { SqlValue } from 'sql.js';
 import type { Resource, ResourceType } from '../../../shared/types';
 
 interface ListFilters {
@@ -38,7 +39,7 @@ export class ResourceRepository {
 
   list(filters?: ListFilters): Resource[] {
     let sql = 'SELECT * FROM resources WHERE 1=1';
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
 
     if (filters?.type) {
       sql += ' AND type = ?';

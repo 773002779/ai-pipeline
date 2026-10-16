@@ -7,7 +7,7 @@ export interface StepContext {
   environment: EnvironmentContext | undefined;
   previousOutputs: Array<{
     stepName: string;
-    outputPath: string;
+    path: string;
     summary: string;
   }>;
   actionItems: Array<{
@@ -40,10 +40,10 @@ export class ContextBuilder {
     const previousOutputs = session.steps
       .slice(0, stepIndex)
       .filter(s => s.status === 'completed' && s.outputPath)
-      .map((s, i) => ({
+      .map(s => ({
         stepName: s.stepName,
-        outputPath: s.outputPath || '',
-        summary: `Step ${i + 1} completed at ${s.completedAt || 'unknown'}`,
+        path: s.outputPath || '',
+        summary: `Completed at ${s.completedAt || 'unknown'}`,
       }));
 
     // Collect action items from previous steps

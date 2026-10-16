@@ -53,7 +53,7 @@ export default function SessionDetail() {
   }, []);
 
   // WebSocket for real-time updates
-  const { connected, on } = useWebSocket(id);
+  const { connected, on, send } = useWebSocket(id);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -163,12 +163,11 @@ export default function SessionDetail() {
     } catch (err: any) { message.error(err.message || '操作失败'); }
   };
 
-  const handlePermissionResponse = async (action: string) => {
+  const handlePermissionResponse = async (action: 'approve' | 'deny' | 'whitelist') => {
     if (!permissionRequest) return;
-    // Send response via WebSocket (will be handled by the hook's send method)
-    // For now, just dismiss the modal
+    // Send response via WebSocket to the server
+    send({ type: 'permission_response', data: { reqId: permissionRequest.id, action } });
     setPermissionRequest(null);
-    message.info(`权限请求: ${action}`);
   };
 
   const handleSend = async () => {
@@ -275,6 +274,9 @@ export default function SessionDetail() {
           )}
           {session.status === 'running' && <Button icon={<PauseCircleOutlined />} onClick={() => handleAction('pause')}>暂停</Button>}
           {session.status === 'paused' && <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handleAction('resume')}>恢复</Button>}
+          {session.status === 'waiting_confirm' && (
+            <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => handleAction('resume')}>继续下一步</Button>
+          )}
           {session.status === 'error' && <Button icon={<ReloadOutlined />} onClick={() => handleAction('retry')}>重试</Button>}
           {['idle', 'running', 'paused', 'error'].includes(session.status) && (
             <Button danger icon={<StopOutlined />} onClick={() => handleAction('cancel')}>取消</Button>
@@ -382,7 +384,7 @@ export default function SessionDetail() {
       {/* Permission Modal */}
       <PermissionModal
         request={permissionRequest}
-        onAllow={() => handlePermissionResponse('allow')}
+        onAllow={() => handlePermissionResponse('approve')}
         onDeny={() => handlePermissionResponse('deny')}
         onWhitelist={() => handlePermissionResponse('whitelist')}
       />

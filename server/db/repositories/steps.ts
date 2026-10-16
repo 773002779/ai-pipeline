@@ -1,4 +1,5 @@
 import { DbHelper } from '../helper';
+import type { SqlValue } from 'sql.js';
 import type { StepTemplate } from '../../../shared/types';
 
 interface ListFilters {
@@ -34,7 +35,7 @@ export class StepRepository {
 
   list(filters?: ListFilters): StepTemplate[] {
     let sql = 'SELECT * FROM step_templates WHERE 1=1';
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
 
     if (filters?.category) {
       sql += ' AND category = ?';

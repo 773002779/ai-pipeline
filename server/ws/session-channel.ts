@@ -1,5 +1,6 @@
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
+import { resolvePermission } from './permission-store';
 import type { WsServerEvent, WsClientEvent } from '../../shared/types';
 
 interface ClientInfo {
@@ -54,9 +55,20 @@ export class SessionChannel {
   }
 
   private handleClientMessage(ws: WebSocket, event: WsClientEvent): void {
-    // Client events are forwarded to the session handler
-    // For now, log them; actual handling is done via REST API
-    console.log(`WS client event: ${event.type}`);
+    switch (event.type) {
+      case 'permission_response': {
+        const { reqId, action } = event.data;
+        const resolved = resolvePermission(reqId, action);
+        if (!resolved) {
+          console.warn(`[ws] Permission ${reqId} not found (may have timed out)`);
+        } else {
+          console.log(`[ws] Permission ${reqId}: ${action}`);
+        }
+        break;
+      }
+      default:
+        console.log(`WS client event: ${event.type}`);
+    }
   }
 
   /** Get number of connected clients */

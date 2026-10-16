@@ -91,6 +91,7 @@ export class PipelineExecutor {
       let stepError = '';
       let accumulatedContent = '';
       let accumulatedThinking = '';
+      let finalStreamContent = '';
 
       try {
         for await (const event of this.agentManager.execute({
@@ -117,6 +118,7 @@ export class PipelineExecutor {
 
           if (event.type === 'ai_stream') {
             if (!event.done) accumulatedContent += event.content;
+            else finalStreamContent = event.content;
             wsChannel.broadcastToSession(session.id, {
               type: 'ai_message',
               data: { content: event.content, done: event.done, stepId: pipelineStep.id },
@@ -139,14 +141,15 @@ export class PipelineExecutor {
           }
 
           if (event.type === 'step_complete') {
-            stepOutput = event.output;
-            // Persist the accumulated assistant message
-            if (accumulatedContent || accumulatedThinking) {
+            // The real step output is the streamed assistant text —
+            // event.output only carries a summary line
+            stepOutput = accumulatedContent || finalStreamContent;
+            if (stepOutput || accumulatedThinking) {
               this.sessionRepo.addMessage(
                 session.id,
                 pipelineStep.id,
                 'assistant',
-                accumulatedContent,
+                stepOutput,
                 accumulatedThinking || undefined,
               );
             }
@@ -190,17 +193,23 @@ export class PipelineExecutor {
         data: { stepId: pipelineStep.id, outputPath: 'output saved' },
       });
 
-      // Auto-advance or wait
-      if (template.autoAdvance) {
-        stepIndex++;
-        this.sessionRepo.updateStatus(session.id, 'running', { currentStepIndex: stepIndex });
-      } else {
-        this.sessionRepo.updateStatus(session.id, 'waiting_confirm', { currentStepIndex: stepIndex + 1 });
+      // Auto-advance or wait for confirmation
+      // interactionMode 'confirm-each' always pauses, regardless of autoAdvance
+      const shouldPause =
+        template.interactionMode === 'confirm-each' ||
+        !template.autoAdvance;
+
+      if (shouldPause) {
+        const nextIndex = stepIndex + 1;
+        this.sessionRepo.updateStatus(session.id, 'waiting_confirm', { currentStepIndex: nextIndex });
         wsChannel.broadcastToSession(session.id, {
           type: 'status_change',
-          data: { status: 'waiting_confirm', currentStepIndex: stepIndex + 1 },
+          data: { status: 'waiting_confirm', currentStepIndex: nextIndex },
         });
         break; // Wait for user to continue
+      } else {
+        stepIndex++;
+        this.sessionRepo.updateStatus(session.id, 'running', { currentStepIndex: stepIndex });
       }
     }
 

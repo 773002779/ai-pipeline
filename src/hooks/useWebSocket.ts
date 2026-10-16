@@ -5,33 +5,69 @@ export function useWebSocket(sessionId: string | undefined) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
   const handlersRef = useRef<Map<string, Set<(data: any) => void>>>(new Map());
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 5;
 
   useEffect(() => {
     if (!sessionId) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/session?sessionId=${sessionId}`;
+    // Fresh session → fresh reconnect budget
+    reconnectAttempts.current = 0;
 
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let unmounted = false;
+    let reconnectTimer: ReturnType<typeof setTimeout>;
 
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
+    const connect = () => {
+      if (unmounted) return;
+      if (reconnectAttempts.current >= maxReconnectAttempts) return;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg: WsServerEvent = JSON.parse(event.data);
-        const handlers = handlersRef.current.get(msg.type);
-        if (handlers) {
-          handlers.forEach(handler => handler((msg as any).data));
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/session?sessionId=${sessionId}`;
+
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setConnected(true);
+        reconnectAttempts.current = 0; // Reset on successful connection
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        wsRef.current = null;
+        // Reconnect with backoff (only for unexpected disconnects)
+        if (!unmounted && reconnectAttempts.current < maxReconnectAttempts) {
+          reconnectAttempts.current++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 15000);
+          reconnectTimer = setTimeout(connect, delay);
         }
-      } catch { /* ignore parse errors */ }
+      };
+
+      ws.onerror = () => {
+        // onclose will fire after this — reconnect handled there
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg: WsServerEvent = JSON.parse(event.data);
+          const handlers = handlersRef.current.get(msg.type);
+          if (handlers) {
+            handlers.forEach(handler => handler((msg as any).data));
+          }
+        } catch { /* ignore parse errors */ }
+      };
     };
 
+    connect();
+
     return () => {
-      ws.close();
-      wsRef.current = null;
+      unmounted = true;
+      clearTimeout(reconnectTimer);
+      if (wsRef.current) {
+        wsRef.current.onclose = null; // Prevent reconnect on intentional close
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       setConnected(false);
     };
   }, [sessionId]);

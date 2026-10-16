@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { DbHelper } from '../helper';
+import type { SqlValue } from 'sql.js';
 import type { Session, SessionStep, ActionItem } from '../../../shared/types';
 
 export class SessionRepository {
@@ -55,17 +56,17 @@ export class SessionRepository {
       templateId: r['template_id'] as string,
       stepName: r['step_name'] as string,
       status: r['status'] as SessionStep['status'],
-      startedAt: r['started_at'] as string | undefined,
-      completedAt: r['completed_at'] as string | undefined,
-      outputPath: r['output_path'] as string | undefined,
-      errorMessage: r['error_message'] as string | undefined,
+      startedAt: (r['started_at'] as string) || undefined,
+      completedAt: (r['completed_at'] as string) || undefined,
+      outputPath: (r['output_path'] as string) || undefined,
+      errorMessage: (r['error_message'] as string) || undefined,
       retryCount: r['retry_count'] as number,
     }));
   }
 
   list(filters?: { status?: string }): Session[] {
     let sql = 'SELECT id FROM sessions WHERE 1=1';
-    const params: unknown[] = [];
+    const params: SqlValue[] = [];
     if (filters?.status) { sql += ' AND status = ?'; params.push(filters.status); }
     sql += ' ORDER BY updated_at DESC';
     const rows = this.db.all<{ id: string }>(sql, params);
@@ -86,13 +87,31 @@ export class SessionRepository {
   }
 
   updateStepStatus(sessionId: string, stepIndex: number, status: SessionStep['status'], extra?: Partial<SessionStep>): void {
-    const stepName = this.getSessionSteps(sessionId)[stepIndex]?.stepName;
-    if (!stepName) return;
+    const order = stepIndex + 1;
+    const current = this.db.get<Record<string, unknown>>(
+      'SELECT * FROM session_steps WHERE session_id = ? AND step_order = ?',
+      [sessionId, order],
+    );
+    if (!current) return;
+
+    // Fields absent from `extra` keep their current value; an explicit
+    // undefined clears the stored value (used by retry to reset state).
+    const pick = (key: keyof SessionStep, fallback: SqlValue | null): SqlValue | null =>
+      extra && key in extra ? ((extra[key] as unknown as SqlValue) ?? null) : fallback;
+
     this.db.run(
       `UPDATE session_steps SET status=?, started_at=?, completed_at=?, output_path=?, error_message=?, retry_count=?
-       WHERE session_id=? AND step_name=?`,
-      [status, extra?.startedAt || null, extra?.completedAt || null, extra?.outputPath || null,
-        extra?.errorMessage || null, extra?.retryCount || 0, sessionId, stepName]
+       WHERE session_id=? AND step_order=?`,
+      [
+        status,
+        pick('startedAt', current['started_at'] as SqlValue | null),
+        pick('completedAt', current['completed_at'] as SqlValue | null),
+        pick('outputPath', current['output_path'] as SqlValue | null),
+        pick('errorMessage', current['error_message'] as SqlValue | null),
+        pick('retryCount', current['retry_count'] as SqlValue | null),
+        sessionId,
+        order,
+      ]
     );
   }
 

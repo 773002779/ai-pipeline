@@ -8,6 +8,7 @@ import { StepRepository } from '../db/repositories/steps';
 import { PrecheckEngine } from '../engine/precheck';
 import { PipelineExecutor } from '../engine/executor';
 import { SessionChannel } from '../ws/session-channel';
+import { cancelSessionPermissions } from '../ws/permission-store';
 import { config } from '../config';
 import type { Session, SessionStep } from '../../shared/types';
 
@@ -15,6 +16,8 @@ export interface SessionRouteDeps {
   wsChannel?: SessionChannel;
   resourceRepo: ResourceRepository;
   stepRepo: StepRepository;
+  /** Test seam: build the step executor generator instead of the real one */
+  executorFactory?: (session: Session) => AsyncGenerator<unknown>;
 }
 
 export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps): Router {
@@ -30,8 +33,10 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
   function launchExecutor(session: Session): void {
     if (!deps?.wsChannel || !deps?.resourceRepo || !deps?.stepRepo) return;
 
-    const executor = new PipelineExecutor(sessionRepo, deps.resourceRepo, deps.stepRepo);
-    const gen = executor.execute(session, deps.wsChannel, config.outputDir);
+    const gen = deps.executorFactory
+      ? deps.executorFactory(session)
+      : new PipelineExecutor(sessionRepo, deps.resourceRepo, deps.stepRepo)
+          .execute(session, deps.wsChannel, config.outputDir);
 
     runningExecutors.set(session.id, gen);
     (async () => {
@@ -90,7 +95,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
 
       const id = uuidv4(); const now = new Date().toISOString();
       const steps: SessionStep[] = pipeline.steps.map(s => ({
-        templateId: s.templateId, stepName: s.templateId,
+        templateId: s.templateId,
+        stepName: deps?.stepRepo.getById(s.templateId)?.name || s.templateId,
         status: 'pending' as const, retryCount: 0,
       }));
 
@@ -130,6 +136,11 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
 
+      // Guard against double-start: an executor may already be running
+      if (runningExecutors.has(session.id) || session.status === 'running') {
+        return res.status(409).json({ success: false, error: 'Session is already running' });
+      }
+
       // Set status to running and respond immediately
       sessionRepo.updateStatus(session.id, 'running');
       const updated = sessionRepo.getById(session.id)!;
@@ -153,6 +164,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
         gen.return(undefined).catch(() => {});
         runningExecutors.delete(session.id);
       }
+      // Release any permission requests awaiting user confirmation
+      cancelSessionPermissions(session.id);
       const updated = sessionRepo.updateStatus(session.id, 'cancelled');
       res.json({ success: true, data: updated });
     } catch (err) {
@@ -160,23 +173,37 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     }
   });
 
-  // Pause / Resume
-  const statusActions: Record<string, Session['status']> = {
-    pause: 'paused', resume: 'running',
-  };
+  // Pause — flip status; the running executor keeps going and checks status
+  router.post('/:id/pause', (req: Request, res: Response) => {
+    try {
+      const session = sessionRepo.getById(req.params.id);
+      if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      const updated = sessionRepo.updateStatus(session.id, 'paused');
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
 
-  for (const [action, status] of Object.entries(statusActions)) {
-    router.post(`/:id/${action}`, (req: Request, res: Response) => {
-      try {
-        const session = sessionRepo.getById(req.params.id);
-        if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
-        const updated = sessionRepo.updateStatus(session.id, status);
-        res.json({ success: true, data: updated });
-      } catch (err) {
-        res.status(500).json({ success: false, error: (err as Error).message });
+  // Resume — continue a waiting/paused session from currentStepIndex
+  router.post('/:id/resume', (req: Request, res: Response) => {
+    try {
+      const session = sessionRepo.getById(req.params.id);
+      if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+
+      const updated = sessionRepo.updateStatus(session.id, 'running')!;
+
+      // After a waiting_confirm pause the executor is gone — relaunch it
+      // from the stored currentStepIndex unless it is already running.
+      if (!runningExecutors.has(session.id) && updated.currentStepIndex < updated.steps.length) {
+        launchExecutor(updated);
       }
-    });
-  }
+
+      res.json({ success: true, data: updated });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
 
   router.post('/:id/retry', (req: Request, res: Response) => {
     try {
@@ -190,6 +217,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
         existing.return(undefined).catch(() => {});
         runningExecutors.delete(session.id);
       }
+      // Release permission requests owned by the stopped executor
+      cancelSessionPermissions(session.id);
 
       if (stepIdx < session.steps.length) {
         sessionRepo.updateStatus(session.id, 'running');
