@@ -1,0 +1,8 @@
+node_modules/
+dist/
+
+# Runtime state — sql.js in-memory database is auto-saved here
+.pipeline/data.db
+
+# Logs
+*.log
