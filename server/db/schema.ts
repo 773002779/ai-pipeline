@@ -96,6 +96,20 @@ export function createTables(db: SqlJsDatabase): void {
       FOREIGN KEY (session_id) REFERENCES sessions(id),
       UNIQUE(session_id, tool_name)
     )`,
+    `CREATE TABLE providers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      protocol TEXT NOT NULL CHECK (protocol IN ('openai', 'anthropic')),
+      base_url TEXT NOT NULL,
+      api_key TEXT NOT NULL,
+      model TEXT NOT NULL,
+      temperature REAL,
+      max_tokens INTEGER,
+      is_active INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'continue')),
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`,
   ];
 
   for (const sql of statements) {

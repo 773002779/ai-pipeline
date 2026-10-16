@@ -260,3 +260,23 @@ export interface PaginatedResponse<T> extends ApiResponse<T[]> {
   page: number;
   pageSize: number;
 }
+
+// ---- 大模型供应商 (LlmProvider) ----
+
+export type LlmProtocol = 'openai' | 'anthropic';
+export type ProviderSource = 'manual' | 'continue';
+
+export interface LlmProvider {
+  id: string;
+  name: string;
+  protocol: LlmProtocol;
+  baseUrl: string;          // 不含路径，如 https://api.deepseek.com
+  apiKey: string;
+  model: string;            // 默认模型名，如 deepseek-chat
+  temperature?: number;
+  maxTokens?: number;
+  isActive: boolean;
+  source: ProviderSource;
+  createdAt: string;
+  updatedAt: string;
+}
