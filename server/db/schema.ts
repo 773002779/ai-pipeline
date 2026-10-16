@@ -129,6 +129,7 @@ export function createTables(db: SqlJsDatabase): void {
     `CREATE INDEX idx_messages_session ON messages(session_id)`,
     `CREATE INDEX idx_action_items_session ON action_items(session_id)`,
     `CREATE INDEX idx_action_items_status ON action_items(session_id, status)`,
+    `CREATE UNIQUE INDEX idx_providers_one_active ON providers(is_active) WHERE is_active = 1`,
   ];
 
   for (const sql of indices) {

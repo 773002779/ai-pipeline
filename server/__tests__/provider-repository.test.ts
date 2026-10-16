@@ -84,6 +84,23 @@ describe('ProviderRepository', () => {
     expect(fresh.getActive()).toBeNull();
   });
 
+  it('update with isActive true switches exclusivity', () => {
+    const a = repo.create(makeProvider({ name: 'ua' }));
+    const b = repo.create(makeProvider({ name: 'ub' }));
+    repo.activate(a.id);
+    repo.update(b.id, { isActive: true });
+    expect(repo.getActive()?.id).toBe(b.id);
+    expect(repo.getById(a.id)?.isActive).toBe(false);
+  });
+
+  it('create with isActive true keeps single active invariant', () => {
+    const a = repo.create(makeProvider({ name: 'ca' }));
+    repo.activate(a.id);
+    const c = repo.create(makeProvider({ name: 'cc', isActive: true }));
+    expect(repo.getActive()?.id).toBe(c.id);
+    expect(repo.getById(a.id)?.isActive).toBe(false);
+  });
+
   it('rejects invalid protocol via CHECK constraint', () => {
     expect(() => repo.create(makeProvider({ protocol: 'grpc' as never }))).toThrow();
   });

@@ -9,6 +9,10 @@ export class ProviderRepository {
     const id = p.id || uuidv4();
     const now = new Date().toISOString();
     const provider: LlmProvider = { ...p, id, createdAt: now, updatedAt: now };
+    if (provider.isActive) {
+      // 单激活不变量：新激活项插入前，先关闭所有已激活行
+      this.db.run('UPDATE providers SET is_active = 0 WHERE is_active = 1');
+    }
     this.db.run(
       `INSERT INTO providers (id, name, protocol, base_url, api_key, model, temperature, max_tokens, is_active, source, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -35,6 +39,10 @@ export class ProviderRepository {
     const existing = this.getById(id);
     if (!existing) return null;
     const merged: LlmProvider = { ...existing, ...updates, id, updatedAt: new Date().toISOString() };
+    if (merged.isActive) {
+      // 单激活不变量：目标行置 1 前，先关闭其余所有行
+      this.db.run('UPDATE providers SET is_active = 0 WHERE id != ?', [id]);
+    }
     this.db.run(
       `UPDATE providers SET name=?, protocol=?, base_url=?, api_key=?, model=?, temperature=?, max_tokens=?, is_active=?, source=?, updated_at=? WHERE id=?`,
       [merged.name, merged.protocol, merged.baseUrl, merged.apiKey, merged.model,
@@ -53,7 +61,10 @@ export class ProviderRepository {
   /** Exclusive activation: target on, everyone else off */
   activate(id: string): LlmProvider | null {
     if (!this.getById(id)) return null;
-    this.db.run('UPDATE providers SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END', [id]);
+    // Two order-independent statements (safe against the partial unique index):
+    // first turn every active row off, then turn the target on.
+    this.db.run('UPDATE providers SET is_active = 0 WHERE is_active = 1');
+    this.db.run('UPDATE providers SET is_active = 1 WHERE id = ?', [id]);
     return this.getById(id);
   }
 
