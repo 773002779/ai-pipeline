@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Typography, Card, Button, Space, Tag, Steps, message, theme,
-  Input, Descriptions, Row, Col, Empty, Spin, Divider, Badge,
+  Input, Descriptions, Row, Col, Empty, Spin, Badge,
 } from 'antd';
 import {
   PlayCircleOutlined, PauseCircleOutlined, ReloadOutlined,
@@ -10,13 +10,11 @@ import {
   SendOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { sessionApi } from '../api/sessions';
-import { useWebSocket } from '../hooks/useWebSocket';
+import { useLiveMessages } from '../hooks/useLiveMessages';
+import ChatMessages from '../components/ChatMessages';
 import PermissionModal from '../components/PermissionModal';
 import OutputViewer from '../components/OutputViewer';
-import type { Session, SessionStatus, SessionStepStatus, Message as Msg, PermissionRequest } from '../types';
-
-// antd 未导出 ThemeToken 类型（antd/es/theme/internal 无此导出），按 brief 回退方案取 useToken 的 token 类型
-type ThemeToken = ReturnType<typeof theme.useToken>['token'];
+import type { Session, SessionStatus, SessionStepStatus } from '../types';
 
 const STATUS_TAGS: Record<SessionStatus, { color: string; label: string }> = {
   idle: { color: 'default', label: '等待中' }, precheck: { color: 'processing', label: '预检中' },
@@ -34,30 +32,17 @@ export default function SessionDetail() {
   const navigate = useNavigate();
   const { token } = theme.useToken();
   const [session, setSession] = useState<Session | null>(null);
-  const [messages, setMessages] = useState<Msg[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [permissionRequest, setPermissionRequest] = useState<PermissionRequest | null>(null);
   const [outputVisible, setOutputVisible] = useState(false);
   const [selectedOutputPath, setSelectedOutputPath] = useState<string>('');
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const thinkingDoneRef = useRef<Set<string>>(new Set());
 
-  // Inject thinking blink animation style
-  useEffect(() => {
-    if (!document.getElementById('thinking-blink-style')) {
-      const style = document.createElement('style');
-      style.id = 'thinking-blink-style';
-      style.textContent = `@keyframes thinking-blink { 50% { opacity: 0; } }
-        .thinking-cursor { animation: thinking-blink 1s step-end infinite; }`;
-      document.head.appendChild(style);
-      return () => { document.getElementById('thinking-blink-style')?.remove(); };
-    }
-  }, []);
-
-  // WebSocket for real-time updates
-  const { connected, on, send } = useWebSocket(id);
+  // 会话实时消息流：ai_message / thinking_delta / tool_use / permission_request 均由 hook 处理
+  const {
+    messages, setMessages, permissionRequest, setPermissionRequest,
+    thinkingDoneRef, connected, on, send,
+  } = useLiveMessages(id);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -77,74 +62,32 @@ export default function SessionDetail() {
       }
     } catch { message.error('加载会话失败'); }
     finally { setLoading(false); }
-  }, [id]);
+  }, [id, setMessages, thinkingDoneRef]);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-  // Listen for WebSocket events
+  // Listen for pipeline-level WebSocket events（消息类事件由 useLiveMessages 处理）
   useEffect(() => {
     const unsubs = [
       on('status_change', (data) => {
         setSession(prev => prev ? { ...prev, status: data.status, currentStepIndex: data.currentStepIndex } : prev);
-      }),
-      on('ai_message', (data) => {
-        if (data.content) {
-          const newMsg: Msg = {
-            id: `ai-${Date.now()}`, sessionId: id!, stepId: data.stepId,
-            role: 'assistant', content: data.content, createdAt: new Date().toISOString(),
-          };
-          setMessages(prev => {
-            // If last message is also assistant and not done, append; otherwise new
-            const last = prev[prev.length - 1];
-            if (last && last.role === 'assistant' && !data.done) {
-              return [...prev.slice(0, -1), { ...last, content: last.content + data.content }];
-            }
-            return [...prev, newMsg];
-          });
-        }
-      }),
-      on('thinking_delta', (data) => {
-        const { content, done, stepId } = data;
-        if (!content && done) return; // Skip empty done signals
-        setMessages(prev => {
-          const last = prev[prev.length - 1];
-          // If the last message is an assistant still receiving thinking, append
-          if (last && last.role === 'assistant' && !thinkingDoneRef.current.has(last.id)) {
-            const updatedThinking = (last.thinking || '') + content;
-            if (done) thinkingDoneRef.current.add(last.id);
-            return [...prev.slice(0, -1), { ...last, thinking: updatedThinking }];
-          }
-          // First thinking chunk: create a placeholder assistant message
-          const newMsg: Msg = {
-            id: `ai-${Date.now()}`,
-            sessionId: id!,
-            stepId,
-            role: 'assistant',
-            content: '',
-            thinking: content,
-            createdAt: new Date().toISOString(),
-          };
-          if (done) thinkingDoneRef.current.add(newMsg.id);
-          return [...prev, newMsg];
-        });
-      }),
-      on('tool_use', (data) => {
-        setMessages(prev => [...prev, {
-          id: `tool-${Date.now()}`, sessionId: id!, role: 'system',
-          content: `⚡ Tool: ${data.toolName} - ${JSON.stringify(data.input).substring(0, 100)}`,
-          createdAt: new Date().toISOString(),
-        }]);
-      }),
-      on('permission_request', (data) => {
-        setPermissionRequest(data);
       }),
       on('step_complete', () => {
         load(); // Reload session to refresh step status
       }),
     ];
     return () => unsubs.forEach(fn => fn());
-  }, [on, id, load]);
+  }, [on, load]);
+
+  // thinking 仍在流式接收的消息 id 集合
+  const thinkingPendingIds = useMemo(
+    () => new Set(
+      messages
+        .filter(m => m.role === 'assistant' && m.thinking && !thinkingDoneRef.current.has(m.id))
+        .map(m => m.id)
+    ),
+    [messages, thinkingDoneRef]
+  );
 
   const handleAction = async (action: string) => {
     if (!id) return;
@@ -184,75 +127,6 @@ export default function SessionDetail() {
     } catch { message.error('发送失败'); }
     finally { setSending(false); }
   };
-
-  // Thinking section sub-component
-  function ThinkingSection({ thinking, streaming, token }: { thinking: string; streaming: boolean; token: ThemeToken }) {
-    const [collapsed, setCollapsed] = useState(true);
-    useEffect(() => {
-      if (streaming) {
-        setCollapsed(false);
-      } else {
-        const timer = setTimeout(() => setCollapsed(true), 2000);
-        return () => clearTimeout(timer);
-      }
-    }, [streaming]);
-
-    return (
-      <div style={{
-        marginTop: 6,
-        marginBottom: 8,
-        background: token.colorFillSecondary,
-        border: `1px solid ${token.colorBorder}`,
-        borderRadius: 6,
-        padding: '6px 10px',
-        fontSize: 12,
-        lineHeight: 1.5,
-      }}>
-        <div
-          onClick={() => setCollapsed(!collapsed)}
-          style={{
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            userSelect: 'none',
-            color: token.colorTextSecondary,
-          }}
-        >
-          <span>🧠</span>
-          <span style={{ fontWeight: 500, fontSize: 11 }}>
-            思考过程
-            {streaming && (
-              <span style={{ marginLeft: 4, color: token.colorTextQuaternary, fontSize: 10 }}>
-                (思考中...)
-              </span>
-            )}
-          </span>
-          <span style={{ marginLeft: 'auto', fontSize: 10, color: token.colorTextQuaternary }}>
-            {collapsed ? '▶ 展开' : '▼ 收起'}
-          </span>
-        </div>
-        {!collapsed && (
-          <div style={{
-            marginTop: 6,
-            padding: '6px 8px',
-            background: token.colorFillTertiary,
-            borderRadius: 4,
-            color: token.colorTextSecondary,
-            fontStyle: 'italic',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
-            maxHeight: streaming ? 300 : 2000,
-            overflowY: streaming ? 'auto' : 'visible',
-            fontSize: 11,
-          }}>
-            {thinking}
-            {streaming && <span className="thinking-cursor">|</span>}
-          </div>
-        )}
-      </div>
-    );
-  }
 
   if (loading) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   if (!session) return <Empty description="会话未找到" />;
@@ -340,35 +214,11 @@ export default function SessionDetail() {
             size="small"
             bodyStyle={{ padding: 0 }}
           >
-            <div style={{ height: 450, overflow: 'auto', padding: 16, background: token.colorBgLayout }}>
-              {messages.length === 0 && <Empty description="暂无消息" />}
-              {messages.map(m => (
-                <div key={m.id} style={{ marginBottom: 10, display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                  <div style={{
-                    maxWidth: '85%', padding: '8px 12px', borderRadius: 8,
-                    background: m.role === 'user' ? '#1677ff' : m.role === 'system' ? token.colorFillSecondary : token.colorFillTertiary,
-                    color: m.role === 'system' ? token.colorWarning : token.colorText,
-                    border: m.role === 'system' ? `1px solid ${token.colorBorderSecondary}` : 'none',
-                  }}>
-                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 10, display: 'block' }}>
-                      {m.role === 'user' ? '👤 你' : m.role === 'system' ? '⚡ 系统' : '🤖 AI'}
-                      {' · '}{new Date(m.createdAt).toLocaleTimeString()}
-                    </Typography.Text>
-                    {m.role === 'assistant' && m.thinking && (
-                      <ThinkingSection
-                        thinking={m.thinking}
-                        streaming={!thinkingDoneRef.current.has(m.id)}
-                        token={token}
-                      />
-                    )}
-                    <div style={{ marginTop: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>
-                      {m.content}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
+            <ChatMessages
+              messages={messages}
+              thinkingPendingIds={thinkingPendingIds}
+              height={450}
+            />
             <div style={{ padding: 12, borderTop: `1px solid ${token.colorBorderSecondary}`, display: 'flex', gap: 8 }}>
               <Input.TextArea
                 value={chatInput} onChange={e => setChatInput(e.target.value)}
