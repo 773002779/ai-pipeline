@@ -40,6 +40,7 @@ export default function ProviderManager() {
 
   const openEditor = (p?: LlmProvider) => {
     setEditing(p ?? null);
+    form.resetFields();
     form.setFieldsValue(p
       ? { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: '', temperature: p.temperature, maxTokens: p.maxTokens }
       : { protocol: 'openai' });
