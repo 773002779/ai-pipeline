@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 setlocal
-cd /d %~dp0
+cd /d "%~dp0"
 
 rem ---- 前端产物检查 ----
 if not exist dist\index.html (
