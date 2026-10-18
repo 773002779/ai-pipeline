@@ -209,6 +209,18 @@ export interface ActionItem {
 export type PermissionRisk = 'low' | 'medium' | 'high';
 export type PermissionStatus = 'pending' | 'approved' | 'denied';
 
+export interface DiffLine {
+  type: 'ctx' | 'add' | 'del';
+  text: string;
+}
+
+export interface DiffInfo {
+  path: string;
+  oldContent: string;
+  newContent: string;
+  diffLines: DiffLine[];
+}
+
 export interface PermissionRequest {
   id: string;
   sessionId: string;
@@ -218,6 +230,7 @@ export interface PermissionRequest {
   risk: PermissionRisk;
   timestamp: string;
   status: PermissionStatus;
+  diff?: DiffInfo;   // Edit/Write 类工具的变更预览
 }
 
 // ---- 对话消息 (Message) ----

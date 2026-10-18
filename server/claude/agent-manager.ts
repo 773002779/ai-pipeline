@@ -16,6 +16,7 @@ import { config as appConfig } from '../config';
 import { getInternalToken } from '../llm/internal-token';
 import type { SessionChannel } from '../ws/session-channel';
 import { waitForPermission } from '../ws/permission-store';
+import { buildToolDiff } from '../utils/tool-diff';
 import type { StepTemplate, Resource, Workspace } from '../../shared/types';
 
 // On Windows, the SDK CLI requires git-bash — common install locations
@@ -459,6 +460,7 @@ If you find issues, bugs, or suggestions, record them as action items with sever
       toolUseID: string;
     }): Promise<PermissionResult> => {
       const permId = uuidv4();
+      const diff = buildToolDiff(toolName, input);
 
       // Send permission request to frontend
       wsChannel.broadcastToSession(sessionId, {
@@ -472,6 +474,7 @@ If you find issues, bugs, or suggestions, record them as action items with sever
           risk: this.assessRisk(toolName, input),
           timestamp: new Date().toISOString(),
           status: 'pending',
+          ...(diff ? { diff } : {}),
         },
       });
 

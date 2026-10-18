@@ -27,6 +27,8 @@ export type {
   PermissionRequest,
   PermissionRisk,
   PermissionStatus,
+  DiffLine,
+  DiffInfo,
   Message,
   MessageRole,
   ApiResponse,
