@@ -13,6 +13,7 @@ import { SessionChannel } from '../ws/session-channel';
 import { cancelSessionPermissions } from '../ws/permission-store';
 import { config } from '../config';
 import type { Session, SessionStep } from '../../shared/types';
+import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 
 export interface SessionRouteDeps {
   wsChannel?: SessionChannel;
@@ -31,6 +32,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
 
   // Track running executors per session (for pause/cancel)
   const runningExecutors = new Map<string, AsyncGenerator>();
+
+  const isChatSession = (s: Session) => s.pipelineId === BUILTIN_CHAT_PIPELINE_ID;
 
   /** 需要已激活供应商的路由守卫：未配置时返回 400 */
   function requireActiveProvider(res: Response): boolean {
@@ -135,6 +138,9 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      if (isChatSession(session)) {
+        return res.status(400).json({ success: false, error: '对话会话请在「Claude 对话」页使用' });
+      }
 
       const environment = await precheck.run(session.workspaces);
       const updated = sessionRepo.updateStatus(session.id, 'idle', { environment });
@@ -149,6 +155,9 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      if (isChatSession(session)) {
+        return res.status(400).json({ success: false, error: '对话会话请在「Claude 对话」页使用' });
+      }
 
       // Guard against double-start: an executor may already be running
       if (runningExecutors.has(session.id) || session.status === 'running') {
@@ -206,6 +215,9 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      if (isChatSession(session)) {
+        return res.status(400).json({ success: false, error: '对话会话请在「Claude 对话」页使用' });
+      }
 
       if (!requireActiveProvider(res)) return;
 
@@ -227,6 +239,9 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      if (isChatSession(session)) {
+        return res.status(400).json({ success: false, error: '对话会话请在「Claude 对话」页使用' });
+      }
       const stepIdx = session.currentStepIndex;
 
       // Stop any existing executor for this session
@@ -264,6 +279,9 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      if (isChatSession(session)) {
+        return res.status(400).json({ success: false, error: '对话会话请在「Claude 对话」页使用' });
+      }
       const id = uuidv4(); const now = new Date().toISOString();
       const cloned: Session = {
         ...session, id, name: `${session.name} (副本)`, status: 'idle',

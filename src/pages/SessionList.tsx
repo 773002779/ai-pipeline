@@ -4,6 +4,7 @@ import { PlusOutlined, PlayCircleOutlined, ReloadOutlined, DeleteOutlined } from
 import { useNavigate } from 'react-router-dom';
 import { sessionApi } from '../api/sessions';
 import type { Session, SessionStatus } from '../types';
+import { BUILTIN_CHAT_PIPELINE_ID } from '../types';
 
 const STATUS_COLORS: Record<SessionStatus, string> = {
   idle: 'default', precheck: 'processing', running: 'processing',
@@ -23,7 +24,7 @@ export default function SessionList() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setSessions(await sessionApi.list()); } catch { message.error('加载失败'); }
+    try { setSessions((await sessionApi.list()).filter(s => s.pipelineId !== BUILTIN_CHAT_PIPELINE_ID)); } catch { message.error('加载失败'); }
     finally { setLoading(false); }
   }, []);
 

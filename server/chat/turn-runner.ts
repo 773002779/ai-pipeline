@@ -48,6 +48,7 @@ export class ChatTurnRunner {
     const prompt = [content, buildReferencedFilesBlock(mentions.files)].filter(Boolean).join('\n\n');
 
     this.deps.sessionRepo.addMessage(session.id, null, 'user', content);
+    this.deps.sessionRepo.applyFirstMessage(session.id, content);
     this.deps.sessionRepo.updateStatus(session.id, 'running');
     this.deps.wsChannel?.broadcastToSession(session.id, {
       type: 'status_change', data: { status: 'running', currentStepIndex: 0 },
@@ -123,6 +124,8 @@ export class ChatTurnRunner {
           type: 'status_change', data: { status, currentStepIndex: 0 },
         });
       }
-    })();
+    })().catch((err: unknown) => {
+      console.error(`[chat] turn crashed for session ${session.id}:`, err);
+    });
   }
 }

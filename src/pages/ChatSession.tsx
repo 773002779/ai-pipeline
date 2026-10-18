@@ -97,11 +97,18 @@ export default function ChatSession() {
   }, [on, id, loadMessages, loadList]);
 
   const handleSend = async () => {
-    if (!id || !input.trim() || running) return;
+    const content = input.trim();
+    if (!id || !content || running) return;
     setSending(true);
     try {
-      await chatApi.sendMessage(id, input.trim());
+      await chatApi.sendMessage(id, content);
       setInput('');
+      // 乐观追加用户气泡：生成期间用户消息立即可见，
+      // 并让 useLiveMessages 的追加逻辑为新回复开一个新助手气泡
+      setMessages(prev => [...prev, {
+        id: `user-${Date.now()}`, sessionId: id, role: 'user' as const,
+        content, createdAt: new Date().toISOString(),
+      }]);
       setSession(prev => prev ? { ...prev, status: 'running' } : prev);
     } catch (err: any) {
       message.error(err.message || '发送失败');

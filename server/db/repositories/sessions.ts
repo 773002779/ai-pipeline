@@ -130,6 +130,16 @@ export class SessionRepository {
     return updated;
   }
 
+  /** 首条用户消息回填会话标题与 requirement（chat 会话专用；已有内容则跳过） */
+  applyFirstMessage(id: string, content: string): void {
+    const existing = this.getById(id);
+    if (!existing || existing.requirement) return;
+    this.db.run(
+      'UPDATE sessions SET name=?, requirement=?, updated_at=? WHERE id=?',
+      [content.slice(0, 20) || '新对话', content, new Date().toISOString(), id]
+    );
+  }
+
   listByPipeline(pipelineId: string): Session[] {
     const rows = this.db.all<{ id: string }>(
       'SELECT id FROM sessions WHERE pipeline_id = ? ORDER BY updated_at DESC', [pipelineId]

@@ -10,9 +10,11 @@ import { ResourceRepository } from '../db/repositories/resources';
 import { StepRepository } from '../db/repositories/steps';
 import { ProviderRepository } from '../db/repositories/providers';
 import { createSessionRoutes } from '../routes/sessions';
+import { ensureBuiltinChatPipeline } from '../chat/builtin-pipeline';
 import { waitForPermission } from '../ws/permission-store';
 import type { Database as SqlJsDatabase } from 'sql.js';
 import type { Session, Pipeline, StepTemplate } from '../../shared/types';
+import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 
 let db: SqlJsDatabase;
 let dbHelper: DbHelper;
@@ -202,5 +204,31 @@ describe('Session start requires an active provider', () => {
     const id = await createSession('有供应商');
     const res = await fetch(`${providerApiBase}/api/sessions/${id}/start`, { method: 'POST' });
     expect(res.status).toBe(200);
+  });
+});
+
+describe('chat 会话守卫', () => {
+  it('chat 会话拒绝流水线操作（start 400）', async () => {
+    ensureBuiltinChatPipeline(dbHelper);
+    const now = new Date().toISOString();
+    sessionRepo.create({
+      id: 'sess-chat-guard',
+      pipelineId: BUILTIN_CHAT_PIPELINE_ID,
+      pipelineSnapshot: { id: BUILTIN_CHAT_PIPELINE_ID, name: '自由对话', description: '', steps: [], createdAt: now, updatedAt: now },
+      name: '新对话', requirement: '', status: 'idle',
+      workspaces: [{ name: 'ws', path: 'D:/tmp/chat', type: 'unknown' }],
+      currentStepIndex: 0, steps: [],
+      createdAt: now, updatedAt: now,
+    });
+
+    const start = await fetch(`${baseUrl}/api/sessions/sess-chat-guard/start`, { method: 'POST' });
+    expect(start.status).toBe(400);
+    const startBody = await start.json();
+    expect(startBody.error).toContain('对话会话');
+
+    const precheck = await fetch(`${baseUrl}/api/sessions/sess-chat-guard/precheck`, { method: 'POST' });
+    expect(precheck.status).toBe(400);
+    const precheckBody = await precheck.json();
+    expect(precheckBody.error).toContain('对话会话');
   });
 });

@@ -172,4 +172,23 @@ describe('ChatTurnRunner', () => {
     await flush();
     expect(sessionRepo.getById('r5')!.status).toBe('error');
   });
+
+  it('首条消息回填会话名与 requirement；后续轮不覆盖', async () => {
+    const session = makeSession('r8');
+    const longContent = '帮我把这个仓库的登录模块重构成 React hooks 并且补全测试覆盖';
+    const runner = runnerWith(async function* (): AsyncGenerator<ChatTurnEvent> {
+      yield { type: 'ai_stream', content: 'ok', done: false };
+      yield { type: 'ai_stream', content: '', done: true };
+    });
+
+    runner.startTurn(session, longContent, 'm');
+    await flush();
+    expect(sessionRepo.getById('r8')!.name).toBe(longContent.slice(0, 20));
+    expect(sessionRepo.getById('r8')!.requirement).toBe(longContent);
+
+    runner.startTurn(sessionRepo.getById('r8')!, '第二条消息', 'm');
+    await flush();
+    expect(sessionRepo.getById('r8')!.requirement).toBe(longContent);
+    expect(sessionRepo.getById('r8')!.name).toBe(longContent.slice(0, 20));
+  });
 });
