@@ -160,4 +160,14 @@ export function createTables(db: SqlJsDatabase): void {
   } catch (_e) {
     // Column already exists — ignore
   }
+  try {
+    db.run("ALTER TABLE sessions ADD COLUMN chat_sdk_session_id TEXT");
+  } catch (_e) {
+    // Column already exists — ignore
+  }
+  try {
+    db.run("ALTER TABLE sessions ADD COLUMN chat_model TEXT");
+  } catch (_e) {
+    // Column already exists — ignore
+  }
 }

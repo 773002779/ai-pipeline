@@ -5,6 +5,7 @@ import { createMemoryDb } from '../db/connection';
 import { createTables } from '../db/schema';
 import { DbHelper } from '../db/helper';
 import { createStatsRoutes } from '../routes/stats';
+import { ensureBuiltinChatPipeline } from '../chat/builtin-pipeline';
 
 let dbHelper: DbHelper;
 let server: http.Server;
@@ -111,5 +112,36 @@ describe('GET /api/stats/overview', () => {
     expect(body.data.sessionsByStatus.completed).toBe(2);
     expect(body.data.resources).toBe(0);
     expect(body.data.pipelines).toBe(0);
+  });
+});
+
+// Task 5 补充：builtin-chat 统计分支覆盖
+describe('builtin-chat 统计分支', () => {
+  function seedChatSession(): void {
+    dbHelper.raw().run('PRAGMA foreign_keys = OFF');
+    dbHelper.run(
+      `INSERT INTO sessions (id, pipeline_id, pipeline_snapshot, name, requirement, status, workspaces_json, current_step_index)
+       VALUES ('sess-chat', 'builtin-chat', '{}', '对话C', 'r', 'idle', '[]', 0)`,
+    );
+    dbHelper.run(
+      `INSERT INTO usage_records (id, session_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, created_at)
+       VALUES ('u-chat', 'sess-chat', 'deepseek-chat', 30, 40, 0, 0, '2026-03-13 09:00:00')`,
+    );
+    dbHelper.raw().run('PRAGMA foreign_keys = ON');
+  }
+
+  it('overview 的 pipelines 计数排除内置 chat 流水线', async () => {
+    const before = await json('/api/stats/overview');
+    ensureBuiltinChatPipeline(dbHelper);
+    const after = await json('/api/stats/overview');
+    expect(after.body.data.pipelines).toBe(before.body.data.pipelines);
+    expect(after.body.data.pipelines).toBe(0);
+  });
+
+  it('usage topSessions 将 chat 会话标记为 kind=chat', async () => {
+    seedChatSession();
+    const { body } = await json('/api/stats/usage?from=2026-03-13&to=2026-03-13');
+    const chat = body.data.topSessions.find((s: any) => s.sessionId === 'sess-chat');
+    expect(chat).toMatchObject({ sessionId: 'sess-chat', name: '对话C', kind: 'chat' });
   });
 });

@@ -12,6 +12,7 @@ import { ResourceRepository } from './db/repositories/resources';
 import { StepLoader } from './steps/loader';
 import { StepRepository } from './db/repositories/steps';
 import { ProviderRepository } from './db/repositories/providers';
+import { ensureBuiltinChatPipeline } from './chat/builtin-pipeline';
 import { SessionChannel } from './ws/session-channel';
 import { createLlmProxy } from './llm/proxy';
 import { setInternalToken } from './llm/internal-token';
@@ -47,6 +48,9 @@ async function main() {
   const stepLoader = new StepLoader(stepRepo);
   const stepCount = stepLoader.loadFromDirectory();
   console.log(`Loaded ${stepCount} step templates from .pipeline/steps/`);
+
+  ensureBuiltinChatPipeline(dbHelper);
+  console.log('Builtin chat pipeline ensured');
 
   // LLM 代理：内部令牌 + 自检 + 隔离的 Claude 配置目录
   const internalToken = randomUUID();

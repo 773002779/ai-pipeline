@@ -11,6 +11,7 @@ import { createResourceRoutes } from './routes/resources';
 import { createStepRoutes } from './routes/steps';
 import { createPipelineRoutes } from './routes/pipelines';
 import { createSessionRoutes } from './routes/sessions';
+import { createChatRoutes } from './routes/chat';
 import { createProviderRoutes } from './routes/providers';
 import { createStatsRoutes } from './routes/stats';
 import { ProviderRepository } from './db/repositories/providers';
@@ -55,6 +56,7 @@ export function createApp(options: AppOptions = {}) {
       stepRepo,
       providerRepo,
     }));
+    app.use('/api/chat', createChatRoutes({ dbHelper: options.dbHelper, providerRepo }));
   }
 
   // 生产模式：托管前端构建产物 + SPA fallback

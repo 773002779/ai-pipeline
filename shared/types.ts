@@ -179,6 +179,8 @@ export interface Session {
   currentStepIndex: number;
   steps: SessionStep[];
   stepOverrides?: Record<string, PipelineStepConfig['overrides']>;
+  chatSdkSessionId?: string;   // Claude 对话：SDK 会话句柄（多轮 resume）
+  chatModel?: string;          // Claude 对话：会话级模型覆盖
   createdAt: string;
   updatedAt: string;
 }

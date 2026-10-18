@@ -9,12 +9,14 @@ export class SessionRepository {
   create(session: Session): Session {
     this.db.run(
       `INSERT INTO sessions (id, pipeline_id, pipeline_snapshot, name, requirement, status,
-        workspaces_json, environment_json, current_step_index, step_overrides_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        workspaces_json, environment_json, current_step_index, step_overrides_json,
+        chat_sdk_session_id, chat_model, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [session.id, session.pipelineId, JSON.stringify(session.pipelineSnapshot), session.name,
         session.requirement, session.status, JSON.stringify(session.workspaces),
         session.environment ? JSON.stringify(session.environment) : null,
         session.currentStepIndex, session.stepOverrides ? JSON.stringify(session.stepOverrides) : null,
+        session.chatSdkSessionId ?? null, session.chatModel ?? null,
         session.createdAt, session.updatedAt]
     );
     // Create session steps
@@ -43,6 +45,8 @@ export class SessionRepository {
       currentStepIndex: row['current_step_index'] as number,
       steps: this.getSessionSteps(id),
       stepOverrides: row['step_overrides_json'] ? JSON.parse(row['step_overrides_json'] as string) : undefined,
+      chatSdkSessionId: (row['chat_sdk_session_id'] as string) || undefined,
+      chatModel: (row['chat_model'] as string) || undefined,
       createdAt: row['created_at'] as string,
       updatedAt: row['updated_at'] as string,
     };
@@ -113,6 +117,35 @@ export class SessionRepository {
         order,
       ]
     );
+  }
+
+  updateChatFields(id: string, fields: { chatSdkSessionId?: string; chatModel?: string }): Session | null {
+    const existing = this.getById(id);
+    if (!existing) return null;
+    const updated = { ...existing, ...fields, updatedAt: new Date().toISOString() };
+    this.db.run(
+      'UPDATE sessions SET chat_sdk_session_id=?, chat_model=?, updated_at=? WHERE id=?',
+      [updated.chatSdkSessionId ?? null, updated.chatModel ?? null, updated.updatedAt, id]
+    );
+    return updated;
+  }
+
+  listByPipeline(pipelineId: string): Session[] {
+    const rows = this.db.all<{ id: string }>(
+      'SELECT id FROM sessions WHERE pipeline_id = ? ORDER BY updated_at DESC', [pipelineId]
+    );
+    return rows.map(r => this.getById(r.id)).filter((s): s is Session => s !== null);
+  }
+
+  deleteCascade(id: string): boolean {
+    if (!this.getById(id)) return false;
+    this.db.run('DELETE FROM messages WHERE session_id = ?', [id]);
+    this.db.run('DELETE FROM usage_records WHERE session_id = ?', [id]);
+    this.db.run('DELETE FROM permission_whitelist WHERE session_id = ?', [id]);
+    this.db.run('DELETE FROM action_items WHERE session_id = ?', [id]);
+    this.db.run('DELETE FROM session_steps WHERE session_id = ?', [id]);
+    this.db.run('DELETE FROM sessions WHERE id = ?', [id]);
+    return true;
   }
 
   addActionItem(item: ActionItem): void {

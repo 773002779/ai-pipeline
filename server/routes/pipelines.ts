@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { DbHelper } from '../db/helper';
 import { PipelineRepository } from '../db/repositories/pipelines';
+import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 import type { Pipeline } from '../../shared/types';
 
 export function createPipelineRoutes(dbHelper: DbHelper): Router {
@@ -10,7 +11,7 @@ export function createPipelineRoutes(dbHelper: DbHelper): Router {
 
   router.get('/', (_req: Request, res: Response) => {
     try {
-      const pipelines = repo.list();
+      const pipelines = repo.list().filter(p => p.id !== BUILTIN_CHAT_PIPELINE_ID);
       res.json({ success: true, data: pipelines });
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message });
@@ -56,6 +57,9 @@ export function createPipelineRoutes(dbHelper: DbHelper): Router {
 
   router.put('/:id', (req: Request, res: Response) => {
     try {
+      if (req.params.id === BUILTIN_CHAT_PIPELINE_ID) {
+        return res.status(400).json({ success: false, error: '内置流水线不可修改' });
+      }
       const updated = repo.update(req.params.id, req.body);
       if (!updated) return res.status(404).json({ success: false, error: 'Pipeline not found' });
       res.json({ success: true, data: updated });
@@ -66,6 +70,9 @@ export function createPipelineRoutes(dbHelper: DbHelper): Router {
 
   router.delete('/:id', (req: Request, res: Response) => {
     try {
+      if (req.params.id === BUILTIN_CHAT_PIPELINE_ID) {
+        return res.status(400).json({ success: false, error: '内置流水线不可修改' });
+      }
       if (!repo.delete(req.params.id)) return res.status(404).json({ success: false, error: 'Pipeline not found' });
       res.json({ success: true });
     } catch (err) {
