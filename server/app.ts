@@ -14,6 +14,7 @@ import { createSessionRoutes } from './routes/sessions';
 import { createChatRoutes } from './routes/chat';
 import { createProviderRoutes } from './routes/providers';
 import { createStatsRoutes } from './routes/stats';
+import { createFsRoutes } from './routes/fs';
 import { ProviderRepository } from './db/repositories/providers';
 import type { Router } from 'express';
 import type { StartupChecks } from './startup-checks';
@@ -49,6 +50,7 @@ export function createApp(options: AppOptions = {}) {
     app.use('/api/pipelines', createPipelineRoutes(options.dbHelper));
     app.use('/api/providers', createProviderRoutes(providerRepo));
     app.use('/api/stats', createStatsRoutes(options.dbHelper));
+    app.use('/api/fs', createFsRoutes());
     if (options.llmProxy) app.use('/_llm', options.llmProxy);
     app.use('/api/sessions', createSessionRoutes(options.dbHelper, {
       wsChannel: options.wsChannel,

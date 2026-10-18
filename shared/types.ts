@@ -285,3 +285,12 @@ export interface LlmProvider {
   createdAt: string;
   updatedAt: string;
 }
+
+// ---- 文件树 (FsNode) ----
+
+export interface FsNode {
+  name: string;
+  path: string;      // 绝对路径
+  type: 'file' | 'dir';
+  children?: FsNode[];
+}

@@ -37,6 +37,7 @@ export type {
   ProviderSource,
   WsServerEvent,
   WsClientEvent,
+  FsNode,
 } from '../../shared/types';
 
 export { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
