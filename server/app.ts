@@ -11,10 +11,15 @@ import { createPipelineRoutes } from './routes/pipelines';
 import { createSessionRoutes } from './routes/sessions';
 import { createProviderRoutes } from './routes/providers';
 import { ProviderRepository } from './db/repositories/providers';
+import type { Router } from 'express';
+import type { StartupChecks } from './startup-checks';
 
 export interface AppOptions {
   dbHelper?: DbHelper;
   wsChannel?: SessionChannel;
+  llmProxy?: Router;          // /_llm 协议转换代理（index.ts 组装后传入）
+  checks?: StartupChecks;     // 启动自检结果（Task 8 填充，本任务先留可选）
+  staticDir?: string;         // 生产模式静态目录（Task 8 使用）
 }
 
 export function createApp(options: AppOptions = {}) {
@@ -26,7 +31,7 @@ export function createApp(options: AppOptions = {}) {
 
   // Health check
   app.get('/api/health', (_req, res) => {
-    res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString() } });
+    res.json({ success: true, data: { status: 'ok', timestamp: new Date().toISOString(), checks: options.checks ?? null } });
   });
 
   // API routes (if dbHelper provided)
@@ -39,6 +44,7 @@ export function createApp(options: AppOptions = {}) {
     app.use('/api/steps', createStepRoutes(options.dbHelper));
     app.use('/api/pipelines', createPipelineRoutes(options.dbHelper));
     app.use('/api/providers', createProviderRoutes(providerRepo));
+    if (options.llmProxy) app.use('/_llm', options.llmProxy);
     app.use('/api/sessions', createSessionRoutes(options.dbHelper, {
       wsChannel: options.wsChannel,
       resourceRepo,
