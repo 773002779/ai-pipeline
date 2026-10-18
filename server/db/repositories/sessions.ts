@@ -47,6 +47,7 @@ export class SessionRepository {
       stepOverrides: row['step_overrides_json'] ? JSON.parse(row['step_overrides_json'] as string) : undefined,
       chatSdkSessionId: (row['chat_sdk_session_id'] as string) || undefined,
       chatModel: (row['chat_model'] as string) || undefined,
+      chatSummary: (row['chat_summary'] as string) || undefined,
       createdAt: row['created_at'] as string,
       updatedAt: row['updated_at'] as string,
     };
@@ -119,15 +120,20 @@ export class SessionRepository {
     );
   }
 
-  updateChatFields(id: string, fields: { chatSdkSessionId?: string; chatModel?: string }): Session | null {
+  updateChatFields(id: string, fields: { chatSdkSessionId?: string; chatModel?: string; chatSummary?: string }): Session | null {
     const existing = this.getById(id);
     if (!existing) return null;
     const updated = { ...existing, ...fields, updatedAt: new Date().toISOString() };
     this.db.run(
-      'UPDATE sessions SET chat_sdk_session_id=?, chat_model=?, updated_at=? WHERE id=?',
-      [updated.chatSdkSessionId ?? null, updated.chatModel ?? null, updated.updatedAt, id]
+      'UPDATE sessions SET chat_sdk_session_id=?, chat_model=?, chat_summary=?, updated_at=? WHERE id=?',
+      [updated.chatSdkSessionId ?? null, updated.chatModel ?? null, updated.chatSummary ?? null, updated.updatedAt, id]
     );
     return updated;
+  }
+
+  /** /clear：清空 SDK 会话句柄与压缩摘要（保留聊天记录与会话级模型选择） */
+  resetChatContext(id: string): void {
+    this.updateChatFields(id, { chatSdkSessionId: undefined, chatSummary: undefined });
   }
 
   /** 首条用户消息回填会话标题与 requirement（chat 会话专用；已有内容则跳过） */

@@ -181,6 +181,7 @@ export interface Session {
   stepOverrides?: Record<string, PipelineStepConfig['overrides']>;
   chatSdkSessionId?: string;   // Claude 对话：SDK 会话句柄（多轮 resume）
   chatModel?: string;          // Claude 对话：会话级模型覆盖
+  chatSummary?: string;        // Claude 对话：/compact 生成的摘要（新会话首轮注入后清除）
   createdAt: string;
   updatedAt: string;
 }

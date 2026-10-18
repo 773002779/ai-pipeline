@@ -208,6 +208,7 @@ export class ClaudeAgentManager {
       };
       if (config.model) sdkOptions.model = config.model;
       if (config.resumeSessionId) sdkOptions.resume = config.resumeSessionId;
+      if (config.disableTools) sdkOptions.tools = [];
 
       const q = query({ prompt: config.prompt, options: sdkOptions });
       let lastModel: string | undefined;
@@ -591,6 +592,7 @@ export interface ChatTurnConfig {
   resumeSessionId?: string;
   workspaces: Workspace[];
   abortController?: AbortController;
+  disableTools?: boolean;     // /compact 摘要轮禁用工具，避免权限弹窗
   wsChannel: SessionChannel;
 }
 

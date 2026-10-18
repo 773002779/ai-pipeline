@@ -4,6 +4,7 @@ import { SessionRepository } from '../db/repositories/sessions';
 import { ProviderRepository } from '../db/repositories/providers';
 import { UsageRepository } from '../db/repositories/usage';
 import { ensureBuiltinChatPipeline } from '../chat/builtin-pipeline';
+import { parseChatCommand } from '../chat/commands';
 import { ChatTurnRunner } from '../chat/turn-runner';
 import type { ChatAgentLike } from '../chat/turn-runner';
 import { ClaudeAgentManager } from '../claude/agent-manager';
@@ -107,13 +108,37 @@ export function createChatRoutes(deps: ChatRouteDeps): Router {
     }
   });
 
-  // 发送一轮消息（后台执行，流式经 WS 推送）
+  // 发送一轮消息（后台执行，流式经 WS 推送）；/ 开头为命令（服务端分发）
   router.post('/:id/messages', (req: Request, res: Response) => {
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!isChatSession(session)) return res.status(404).json({ success: false, error: '对话不存在' });
       const { content } = req.body || {};
       if (!content?.trim()) return res.status(400).json({ success: false, error: 'content is required' });
+
+      const command = parseChatCommand(content.trim());
+      if (command && runner.isRunning(session.id)) {
+        return res.status(409).json({ success: false, error: '当前回复生成中，请稍候或先停止' });
+      }
+      if (command?.type === 'clear') {
+        sessionRepo.resetChatContext(session.id);
+        sessionRepo.addMessage(session.id, null, 'system', '🧹 上下文已清理，模型将重新开始（聊天记录保留）。');
+        deps.wsChannel?.broadcastToSession(session.id, {
+          type: 'status_change', data: { status: 'idle', currentStepIndex: 0 },
+        });
+        return res.status(202).json({ success: true });
+      }
+      if (command?.type === 'compact') {
+        // 无 SDK 会话时是纯 no-op（无需模型），不要求已配置供应商
+        if (session.chatSdkSessionId && !requireActiveProvider(res)) return;
+        runner.startCompact(session, deps.providerRepo?.getActive()?.model);
+        return res.status(202).json({ success: true });
+      }
+      if (command) {
+        // skill 命令在本任务暂不支持（Task 3 接资源仓库），统一按未知命令提示
+        return res.status(400).json({ success: false, error: `未知命令 /${command.name}，可用：/clear、/compact 或已启用的 skill` });
+      }
+
       if (!requireActiveProvider(res)) return;
       if (runner.isRunning(session.id)) {
         return res.status(409).json({ success: false, error: '当前回复生成中，请稍候或先停止' });

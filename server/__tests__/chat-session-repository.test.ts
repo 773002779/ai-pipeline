@@ -84,3 +84,17 @@ describe('ensureBuiltinChatPipeline', () => {
     expect(all).toHaveLength(1);
   });
 });
+
+describe('chatSummary 与 resetChatContext', () => {
+  it('updateChatFields 持久化 chatSummary；resetChatContext 清空句柄与摘要但保留模型', () => {
+    repo.create(chatSession('c5'));
+    repo.updateChatFields('c5', { chatSdkSessionId: 'sdk-1', chatModel: 'gpt-4o', chatSummary: '早期摘要' });
+    expect(repo.getById('c5')!.chatSummary).toBe('早期摘要');
+
+    repo.resetChatContext('c5');
+    const loaded = repo.getById('c5')!;
+    expect(loaded.chatSdkSessionId).toBeUndefined();
+    expect(loaded.chatSummary).toBeUndefined();
+    expect(loaded.chatModel).toBe('gpt-4o');
+  });
+});

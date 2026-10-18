@@ -191,4 +191,105 @@ describe('ChatTurnRunner', () => {
     expect(sessionRepo.getById('r8')!.requirement).toBe(longContent);
     expect(sessionRepo.getById('r8')!.name).toBe(longContent.slice(0, 20));
   });
+
+  it('startCompact：resume 旧会话、禁工具，摘要落库、句柄清空、系统消息、状态 idle', async () => {
+    const session = makeSession('r9');
+    sessionRepo.updateChatFields('r9', { chatSdkSessionId: 'sdk-old' });
+    let captured: any;
+    const runner = runnerWith(async function* (cfg: any): AsyncGenerator<ChatTurnEvent> {
+      captured = cfg;
+      yield { type: 'usage', model: 'm', usage: { inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0 } };
+      yield { type: 'ai_stream', content: '任务目标：重构登录。未完成：补测试。', done: false };
+      yield { type: 'ai_stream', content: '', done: true };
+    });
+
+    runner.startCompact(sessionRepo.getById('r9')!, 'm');
+    await flush();
+
+    expect(captured.disableTools).toBe(true);
+    expect(captured.resumeSessionId).toBe('sdk-old');
+    expect(captured.prompt).toContain('只输出摘要正文');
+    const loaded = sessionRepo.getById('r9')!;
+    expect(loaded.chatSummary).toContain('未完成：补测试');
+    expect(loaded.chatSdkSessionId).toBeUndefined();
+    expect(loaded.status).toBe('idle');
+    const sysMsgs = dbHelper.all<Record<string, unknown>>(
+      "SELECT * FROM messages WHERE session_id = 'r9' AND role = 'system'",
+    );
+    expect(sysMsgs.some(m => String(m['content']).includes('上下文已压缩'))).toBe(true);
+  });
+
+  it('startCompact：无 SDK 会话时 no-op（系统消息「对话为空」，不占 running）', async () => {
+    const session = makeSession('r10');
+    let called = false;
+    const runner = runnerWith(async function* (): AsyncGenerator<ChatTurnEvent> {
+      called = true;
+      yield { type: 'ai_stream', content: '', done: true };
+    });
+
+    runner.startCompact(session, 'm');
+    await flush();
+
+    expect(called).toBe(false);
+    expect(runner.isRunning('r10')).toBe(false);
+    const sysMsgs = dbHelper.all<Record<string, unknown>>(
+      "SELECT * FROM messages WHERE session_id = 'r10' AND role = 'system'",
+    );
+    expect(sysMsgs.some(m => String(m['content']).includes('对话为空'))).toBe(true);
+    expect(sessionRepo.getById('r10')!.status).toBe('idle');
+  });
+
+  it('startCompact：摘要轮失败 → 状态 error + 系统消息提示重试', async () => {
+    const session = makeSession('r11');
+    sessionRepo.updateChatFields('r11', { chatSdkSessionId: 'sdk-old' });
+    const runner = runnerWith(async function* (): AsyncGenerator<ChatTurnEvent> {
+      yield { type: 'turn_error', error: '上游 500' };
+    });
+
+    runner.startCompact(sessionRepo.getById('r11')!, 'm');
+    await flush();
+
+    expect(sessionRepo.getById('r11')!.status).toBe('error');
+    const sysMsgs = dbHelper.all<Record<string, unknown>>(
+      "SELECT * FROM messages WHERE session_id = 'r11' AND role = 'system'",
+    );
+    expect(sysMsgs.some(m => String(m['content']).includes('压缩失败'))).toBe(true);
+  });
+
+  it('startTurn：存在摘要且无 SDK 会话 → prompt 注入摘要块，新 sdk_session 后摘要清除', async () => {
+    const session = makeSession('r12');
+    sessionRepo.updateChatFields('r12', { chatSummary: '这是历史摘要' });
+    const prompts: string[] = [];
+    const runner = runnerWith(async function* (cfg: any): AsyncGenerator<ChatTurnEvent> {
+      prompts.push(cfg.prompt);
+      yield { type: 'sdk_session', sdkSessionId: 'sdk-new' };
+      yield { type: 'ai_stream', content: 'ok', done: false };
+      yield { type: 'ai_stream', content: '', done: true };
+    });
+
+    runner.startTurn(sessionRepo.getById('r12')!, '继续', 'm');
+    await flush();
+
+    expect(prompts[0].startsWith('## Previous Conversation Summary')).toBe(true);
+    expect(prompts[0]).toContain('这是历史摘要');
+    expect(prompts[0]).toContain('继续');
+    expect(sessionRepo.getById('r12')!.chatSummary).toBeUndefined();
+    expect(sessionRepo.getById('r12')!.chatSdkSessionId).toBe('sdk-new');
+  });
+
+  it('startTurn：skill 参数 → prompt 末尾追加 Skill 块', async () => {
+    const session = makeSession('r13');
+    let captured = '';
+    const runner = runnerWith(async function* (cfg: any): AsyncGenerator<ChatTurnEvent> {
+      captured = cfg.prompt;
+      yield { type: 'ai_stream', content: '', done: true };
+    });
+
+    runner.startTurn(session, '按流程来', 'm', { name: 'code-review', prompt: '审查代码时逐文件检查' });
+    await flush();
+
+    expect(captured).toContain('## Skill: code-review');
+    expect(captured).toContain('审查代码时逐文件检查');
+    expect(captured.indexOf('## Skill: code-review')).toBeGreaterThan(captured.indexOf('按流程来'));
+  });
 });

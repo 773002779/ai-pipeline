@@ -181,4 +181,91 @@ describe('chat messages/stop', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('/clear：202 + 系统消息 + 清空会话句柄（无供应商也可用）', async () => {
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }], model: 'm' });
+    const id = created.body.data.id;
+    // 直接种 SDK 会话句柄（绕过真实轮次）
+    new SessionRepository(dbHelper)
+      .updateChatFields(id, { chatSdkSessionId: 'sdk-x', chatSummary: '旧摘要' });
+
+    const { status } = await req('POST', `/api/chat/${id}/messages`, { content: '/clear' });
+    expect(status).toBe(202);
+
+    const repo = new SessionRepository(dbHelper);
+    const loaded = repo.getById(id)!;
+    expect(loaded.chatSdkSessionId).toBeUndefined();
+    expect(loaded.chatSummary).toBeUndefined();
+    expect(loaded.chatModel).toBe('m'); // 模型选择保留
+    const sysMsgs = dbHelper.all<Record<string, unknown>>(
+      `SELECT * FROM messages WHERE session_id = '${id}' AND role = 'system'`,
+    );
+    expect(sysMsgs.some(m => String(m['content']).includes('上下文已清理'))).toBe(true);
+    // 命令文本本身不入库
+    const userMsgs = dbHelper.all<Record<string, unknown>>(
+      `SELECT * FROM messages WHERE session_id = '${id}' AND role = 'user'`,
+    );
+    expect(userMsgs).toHaveLength(0);
+  });
+
+  it('/compact：无 SDK 会话 → 202 + 「对话为空，无需压缩」', async () => {
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }] });
+    const id = created.body.data.id;
+    const { status } = await req('POST', `/api/chat/${id}/messages`, { content: '/compact' });
+    expect(status).toBe(202);
+    const sysMsgs = dbHelper.all<Record<string, unknown>>(
+      `SELECT * FROM messages WHERE session_id = '${id}' AND role = 'system'`,
+    );
+    expect(sysMsgs.some(m => String(m['content']).includes('对话为空'))).toBe(true);
+  });
+
+  it('未知命令 400', async () => {
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }] });
+    const id = created.body.data.id;
+    const { status, body } = await req('POST', `/api/chat/${id}/messages`, { content: '/nope' });
+    expect(status).toBe(400);
+    expect(body.error).toContain('未知命令 /nope');
+  });
+
+  it('/clear：运行中 409', async () => {
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }] });
+    const id = created.body.data.id;
+    // 最小挂起 runner 触发运行态
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const hanging = new ChatTurnRunner({
+      sessionRepo: new SessionRepository(dbHelper), usageRepo: new UsageRepository(dbHelper),
+      agentManager: { async *executeChatTurn(cfg: any): AsyncGenerator<any> {
+        yield { type: 'ai_stream', content: 'x', done: false };
+        await gate;
+        yield { type: 'ai_stream', content: '', done: true };
+      } },
+    });
+    const appX = express();
+    appX.use(express.json());
+    appX.use('/api/chat', createChatRoutes({
+      dbHelper,
+      runner: hanging as never,
+      providerRepo: { getActive: () => ({ model: 'm' }) } as never,
+    }));
+    const serverX = http.createServer(appX);
+    await new Promise<void>((resolve) => serverX.listen(0, resolve));
+    const baseX = `http://127.0.0.1:${(serverX.address() as any).port}`;
+
+    await fetch(`${baseX}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'hi' }),
+    });
+    await new Promise(r => setTimeout(r, 30));
+
+    const cmd = await fetch(`${baseX}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '/clear' }),
+    });
+    expect(cmd.status).toBe(409);
+
+    release();
+    await new Promise(r => setTimeout(r, 30));
+    serverX.close();
+  });
 });
