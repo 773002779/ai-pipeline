@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { createMemoryDb } from '../db/connection';
@@ -7,6 +7,7 @@ import { DbHelper } from '../db/helper';
 import { createChatRoutes } from '../routes/chat';
 import { SessionRepository } from '../db/repositories/sessions';
 import { UsageRepository } from '../db/repositories/usage';
+import { ResourceRepository } from '../db/repositories/resources';
 import { ChatTurnRunner } from '../chat/turn-runner';
 import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 
@@ -267,5 +268,77 @@ describe('chat messages/stop', () => {
     release();
     await new Promise(r => setTimeout(r, 30));
     serverX.close();
+  });
+
+  it('/skill 命令：命中已启用 skill → 202 且 startTurn 收到 skill 参数', async () => {
+    // 准备资源仓库 + 一个已启用 skill
+    const resourceRepo = new ResourceRepository(dbHelper);
+    resourceRepo.create({
+      id: 'skill-cr', type: 'skill', name: 'code-review', description: '代码审查',
+      version: '1.0.0', source: 'manual', config: { prompt: '审查代码时逐文件检查' },
+      enabled: true, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    });
+
+    const startTurnSpy = vi.fn();
+    const spyRunner = { isRunning: () => false, startTurn: startTurnSpy, stop: () => false };
+    const appY = express();
+    appY.use(express.json());
+    appY.use('/api/chat', createChatRoutes({
+      dbHelper,
+      runner: spyRunner as never,
+      providerRepo: { getActive: () => ({ model: 'm' }) } as never,
+      resourceRepo,
+    }));
+    const serverY = http.createServer(appY);
+    await new Promise<void>((resolve) => serverY.listen(0, resolve));
+    const baseY = `http://127.0.0.1:${(serverY.address() as any).port}`;
+
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }] });
+    const id = created.body.data.id;
+
+    const res = await fetch(`${baseY}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '/code-review 重点看登录模块' }),
+    });
+    expect(res.status).toBe(202);
+    expect(startTurnSpy).toHaveBeenCalledTimes(1);
+    const [, content, , skill] = startTurnSpy.mock.calls[0];
+    expect(content).toBe('/code-review 重点看登录模块');
+    expect(skill).toEqual({ name: 'code-review', prompt: '审查代码时逐文件检查' });
+    serverY.close();
+  });
+
+  it('/skill 命令：未命中（含禁用）→ 400 未知命令', async () => {
+    const resourceRepo = new ResourceRepository(dbHelper);
+    resourceRepo.create({
+      id: 'skill-off', type: 'skill', name: 'disabled-skill', description: '',
+      version: '1.0.0', source: 'manual', config: { prompt: 'x' },
+      enabled: false, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    });
+
+    const spyRunner = { isRunning: () => false, startTurn: () => {}, stop: () => false };
+    const appZ = express();
+    appZ.use(express.json());
+    appZ.use('/api/chat', createChatRoutes({
+      dbHelper,
+      runner: spyRunner as never,
+      providerRepo: { getActive: () => ({ model: 'm' }) } as never,
+      resourceRepo,
+    }));
+    const serverZ = http.createServer(appZ);
+    await new Promise<void>((resolve) => serverZ.listen(0, resolve));
+    const baseZ = `http://127.0.0.1:${(serverZ.address() as any).port}`;
+
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }] });
+    const id = created.body.data.id;
+
+    const res = await fetch(`${baseZ}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: '/disabled-skill' }),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain('未知命令 /disabled-skill');
+    serverZ.close();
   });
 });

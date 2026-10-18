@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionRepository } from '../db/repositories/sessions';
 import { ProviderRepository } from '../db/repositories/providers';
+import { ResourceRepository } from '../db/repositories/resources';
 import { UsageRepository } from '../db/repositories/usage';
 import { ensureBuiltinChatPipeline } from '../chat/builtin-pipeline';
 import { parseChatCommand } from '../chat/commands';
@@ -11,11 +12,13 @@ import { ClaudeAgentManager } from '../claude/agent-manager';
 import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 import type { DbHelper } from '../db/helper';
 import type { SessionChannel } from '../ws/session-channel';
-import type { Session } from '../../shared/types';
+import type { Session, SkillConfig } from '../../shared/types';
 
 export interface ChatRouteDeps {
   dbHelper: DbHelper;
   providerRepo?: ProviderRepository;
+  /** skill 命令解析用（Task 3） */
+  resourceRepo?: ResourceRepository;
   wsChannel?: SessionChannel;
   agentManager?: ChatAgentLike;
   runner?: ChatTurnRunner;
@@ -135,8 +138,23 @@ export function createChatRoutes(deps: ChatRouteDeps): Router {
         return res.status(202).json({ success: true });
       }
       if (command) {
-        // skill 命令在本任务暂不支持（Task 3 接资源仓库），统一按未知命令提示
-        return res.status(400).json({ success: false, error: `未知命令 /${command.name}，可用：/clear、/compact 或已启用的 skill` });
+        if (command.type === 'skill') {
+          const skills = deps.resourceRepo?.list({ type: 'skill', enabled: true }) ?? [];
+          const skill = skills.find(r => r.name === command.name);
+          if (!skill) {
+            return res.status(400).json({ success: false, error: `未知命令 /${command.name}，可用：/clear、/compact 或已启用的 skill` });
+          }
+          if (!requireActiveProvider(res)) return;
+          if (runner.isRunning(session.id)) {
+            return res.status(409).json({ success: false, error: '当前回复生成中，请稍候或先停止' });
+          }
+          const skillConfig = skill.config as SkillConfig;
+          const defaultModel = deps.providerRepo?.getActive()?.model;
+          runner.startTurn(session, content.trim(), defaultModel, { name: skill.name, prompt: skillConfig.prompt || '' });
+          return res.status(202).json({ success: true });
+        }
+        // 穷尽性兜底（clear/compact 已在上方处理，正常不可达）
+        return res.status(400).json({ success: false, error: `未知命令 /${(command as { name?: string }).name ?? ''}，可用：/clear、/compact 或已启用的 skill` });
       }
 
       if (!requireActiveProvider(res)) return;

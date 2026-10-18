@@ -11,10 +11,11 @@ import {
 import { chatApi, fsApi } from '../api/chat';
 import { sessionApi } from '../api/sessions';
 import { providerApi } from '../api/providers';
+import { resourceApi } from '../api/resources';
 import { useLiveMessages } from '../hooks/useLiveMessages';
 import ChatMessages from '../components/ChatMessages';
 import PermissionModal from '../components/PermissionModal';
-import type { Session, FsNode } from '../types';
+import type { Session, FsNode, Resource } from '../types';
 
 /** 文件树扁平化为 @引用候选（相对路径，上限 2000） */
 function flattenOptions(node: FsNode, root: string, out: { value: string }[] = []): { value: string }[] {
@@ -35,6 +36,8 @@ export default function ChatSession() {
   const [modelOptions, setModelOptions] = useState<{ value: string }[]>([]);
   const [model, setModel] = useState<string>('');
   const [sending, setSending] = useState(false);
+  const [skills, setSkills] = useState<Resource[]>([]);
+  const [slashMode, setSlashMode] = useState(false);
 
   const { messages, setMessages, permissionRequest, setPermissionRequest, thinkingDoneRef, connected, on, send } = useLiveMessages(id);
 
@@ -85,6 +88,11 @@ export default function ChatSession() {
     }).catch(() => {});
   }, []);
 
+  // skill 列表拉取一次（/ 命令候选）
+  useEffect(() => {
+    resourceApi.list('skill').then(list => setSkills(list.filter(s => s.enabled))).catch(() => {});
+  }, []);
+
   // WS：状态变化 → 刷新会话与消息
   useEffect(() => {
     const unsubs = [
@@ -132,6 +140,14 @@ export default function ChatSession() {
     send({ type: 'permission_response', data: { reqId: permissionRequest.id, action } });
     setPermissionRequest(null);
   };
+
+  const commandOptions = useMemo(() => [
+    { value: 'clear', label: <div>🧹 <b>/clear</b> 清理上下文（重置模型记忆，保留聊天记录）</div> },
+    { value: 'compact', label: <div>📦 <b>/compact</b> 压缩上下文（生成摘要后重新开始）</div> },
+    ...skills.map(s => (
+      { value: s.name, label: <div>⚡ <b>/{s.name}</b>{s.description ? ` ${s.description}` : ''}</div> }
+    )),
+  ], [skills]);
 
   const thinkingPendingIds = useMemo(
     () => new Set(messages.filter(m => m.role === 'assistant' && m.thinking && !thinkingDoneRef.current.has(m.id)).map(m => m.id)),
@@ -218,8 +234,9 @@ export default function ChatSession() {
             value={input}
             onChange={setInput}
             placeholder="输入消息，@ 引用文件（Shift+Enter 换行）"
-            prefix="@"
-            options={fileOptions}
+            prefix={['@', '/']}
+            options={slashMode ? commandOptions : fileOptions}
+            onSearch={(_search, prefix) => setSlashMode(prefix === '/')}
             onPressEnter={(e) => {
               if (!e.shiftKey) { e.preventDefault(); handleSend(); }
             }}

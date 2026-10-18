@@ -62,6 +62,7 @@ export function createApp(options: AppOptions = {}) {
       dbHelper: options.dbHelper,
       providerRepo,
       wsChannel: options.wsChannel,
+      resourceRepo,
     }));
   }
 
