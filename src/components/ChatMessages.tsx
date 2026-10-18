@@ -27,10 +27,14 @@ export default function ChatMessages({ messages, thinkingPendingIds, height = 45
             maxWidth: '85%', padding: '8px 12px', borderRadius: 8,
             background: m.role === 'user' ? token.colorPrimary
               : m.role === 'system' ? token.colorFillSecondary : token.colorFillTertiary,
-            color: m.role === 'system' ? token.colorWarning : token.colorText,
+            color: m.role === 'user' ? token.colorTextLightSolid
+              : m.role === 'system' ? token.colorWarning : token.colorText,
             border: m.role === 'system' ? `1px solid ${token.colorBorderSecondary}` : 'none',
           }}>
-            <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 10, display: 'block' }}>
+            <Typography.Text style={{
+              color: m.role === 'user' ? 'rgba(255,255,255,0.8)' : token.colorTextSecondary,
+              fontSize: 10, display: 'block',
+            }}>
               {m.role === 'user' ? '👤 你' : m.role === 'system' ? '⚡ 系统' : '🤖 AI'}
               {' · '}{new Date(m.createdAt).toLocaleTimeString()}
             </Typography.Text>
