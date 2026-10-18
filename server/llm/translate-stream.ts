@@ -1,9 +1,7 @@
 /**
  * OpenAI Chat SSE → Anthropic Messages SSE stream translation (state machine).
- * Note: message_start is emitted before usage is known (input_tokens=0) — OpenAI
- * only sends usage in the final chunk. When it arrives, the message_start message
- * object's usage is updated in place; message_delta carries the authoritative
- * output_tokens.
+ * Note: message_start reports input_tokens=0 — OpenAI only sends usage in the
+ * final chunk, so authoritative usage lands in message_delta.
  */
 
 export interface OpenAiStreamChunk {
@@ -45,18 +43,22 @@ export class StreamTranslator {
   private outputTokens = 0;
   private stopReason = 'end_turn';
   private model = '';
-  private message: Record<string, unknown> | null = null;
 
   private *ensureStarted(chunk: OpenAiStreamChunk): Generator<AnthropicSseEvent> {
     if (this.started) return;
     this.started = true;
     this.model = chunk.model || '';
-    this.message = {
-      id: chunk.id || 'msg_proxy', type: 'message', role: 'assistant', model: this.model,
-      content: [], stop_reason: null, stop_sequence: null,
-      usage: { input_tokens: this.inputTokens, output_tokens: 0 },
+    yield {
+      event: 'message_start',
+      data: {
+        type: 'message_start',
+        message: {
+          id: chunk.id || 'msg_proxy', type: 'message', role: 'assistant', model: this.model,
+          content: [], stop_reason: null, stop_sequence: null,
+          usage: { input_tokens: this.inputTokens, output_tokens: 0 },
+        },
+      },
     };
-    yield { event: 'message_start', data: { type: 'message_start', message: this.message } };
   }
 
   private *open(type: 'text' | 'thinking' | 'tool', block: Record<string, unknown>): Generator<AnthropicSseEvent> {
@@ -79,10 +81,6 @@ export class StreamTranslator {
     if (chunk.usage) {
       this.inputTokens = chunk.usage.prompt_tokens ?? this.inputTokens;
       this.outputTokens = chunk.usage.completion_tokens ?? this.outputTokens;
-      if (this.message) {
-        (this.message.usage as { input_tokens: number; output_tokens: number }).input_tokens = this.inputTokens;
-        (this.message.usage as { input_tokens: number; output_tokens: number }).output_tokens = this.outputTokens;
-      }
     }
 
     const choice = chunk.choices?.[0];
@@ -129,11 +127,16 @@ export class StreamTranslator {
 
     if (choice.finish_reason) {
       this.stopReason = STOP_REASON[choice.finish_reason] || 'end_turn';
-      yield* this.finish();
+      // Defer message_delta/message_stop to finish(): with stream_options.include_usage
+      // a usage-only chunk (choices: []) follows finish_reason, and usage must be
+      // recorded before message_delta is emitted.
+      yield* this.closeCurrent();
     }
   }
 
-  /** Close out the message. Idempotent; safe to call multiple times. */
+  /** Close out the message: message_delta + message_stop. Idempotent; safe to call
+   *  multiple times. Task 6 must call it once at stream end ([DONE]) so deferred
+   *  closing events are emitted after any trailing usage-only chunk is captured. */
   *finish(): Generator<AnthropicSseEvent> {
     if (this.finished) return;
     yield* this.ensureStarted({});

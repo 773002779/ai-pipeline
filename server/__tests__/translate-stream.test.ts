@@ -94,14 +94,25 @@ describe('StreamTranslator', () => {
     expect(twice).toEqual([]);
   });
 
-  it('records usage when provided', () => {
+  it('reports usage in message_delta, message_start carries none', () => {
     const events = eventsOf([
       textChunk('x'),
       { choices: [{ finish_reason: 'stop' }], usage: { prompt_tokens: 11, completion_tokens: 7 } } as OpenAiStreamChunk,
     ]);
     const start = events[0];
-    expect((start.data.message as { usage: { input_tokens: number } }).usage.input_tokens).toBe(11);
+    expect((start.data.message as { usage: { input_tokens: number } }).usage.input_tokens).toBe(0);
     const msgDelta = events.find(e => e.event === 'message_delta');
     expect((msgDelta!.data.usage as { output_tokens: number }).output_tokens).toBe(7);
+  });
+
+  it('captures usage from a trailing usage-only chunk after finish_reason', () => {
+    const events = eventsOf([
+      textChunk('x'),
+      { choices: [{ finish_reason: 'stop' }] } as OpenAiStreamChunk,
+      { choices: [], usage: { prompt_tokens: 11, completion_tokens: 7 } } as OpenAiStreamChunk,
+    ]);
+    const msgDelta = events.find(e => e.event === 'message_delta');
+    expect((msgDelta!.data.usage as { output_tokens: number }).output_tokens).toBe(7);
+    expect(events[events.length - 1].event).toBe('message_stop');
   });
 });
