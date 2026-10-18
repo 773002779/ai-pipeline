@@ -12,6 +12,7 @@ import { createStepRoutes } from './routes/steps';
 import { createPipelineRoutes } from './routes/pipelines';
 import { createSessionRoutes } from './routes/sessions';
 import { createProviderRoutes } from './routes/providers';
+import { createStatsRoutes } from './routes/stats';
 import { ProviderRepository } from './db/repositories/providers';
 import type { Router } from 'express';
 import type { StartupChecks } from './startup-checks';
@@ -46,6 +47,7 @@ export function createApp(options: AppOptions = {}) {
     app.use('/api/steps', createStepRoutes(options.dbHelper));
     app.use('/api/pipelines', createPipelineRoutes(options.dbHelper));
     app.use('/api/providers', createProviderRoutes(providerRepo));
+    app.use('/api/stats', createStatsRoutes(options.dbHelper));
     if (options.llmProxy) app.use('/_llm', options.llmProxy);
     app.use('/api/sessions', createSessionRoutes(options.dbHelper, {
       wsChannel: options.wsChannel,

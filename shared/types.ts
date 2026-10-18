@@ -2,6 +2,9 @@
 // 共享类型定义 — AI Pipeline
 // ============================================================
 
+// 内置「自由对话」流水线 id（Claude 对话页专用）
+export const BUILTIN_CHAT_PIPELINE_ID = 'builtin-chat';
+
 // ---- 资源 (Resource) ----
 
 export type ResourceType = 'skill' | 'agent' | 'mcp';
