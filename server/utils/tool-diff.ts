@@ -20,7 +20,7 @@ export function buildToolDiff(toolName: string, input: Record<string, unknown>):
     if (typeof oldStr === 'string' && oldStr.length > 0) {
       newContent = input.replace_all
         ? oldContent.split(oldStr).join(newStr)
-        : oldContent.replace(oldStr, newStr);
+        : oldContent.replace(oldStr, () => newStr);
     }
   } else if (toolName === 'Write') {
     newContent = (input.content as string) ?? '';

@@ -35,6 +35,13 @@ describe('buildToolDiff', () => {
     expect(d!.newContent).toBe('y\ny\n');
   });
 
+  it('Edit 单次替换不解释 $ 替换模式', () => {
+    const f3 = path.join(dir, 'dollar.ts');
+    fs.writeFileSync(f3, 'run: $$ and $& here\n');
+    const d = buildToolDiff('Edit', { file_path: f3, old_string: 'run:', new_string: 'echo $$ $&' });
+    expect(d!.newContent).toBe('echo $$ $& $$ and $& here\n');
+  });
+
   it('Write：整个文件替换', () => {
     const d = buildToolDiff('Write', { file_path: file, content: 'totally new' });
     expect(d!.oldContent).toContain(('const a = 42;' as string) === '' ? '' : 'const');
