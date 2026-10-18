@@ -237,6 +237,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
       // Release permission requests owned by the stopped executor
       cancelSessionPermissions(session.id);
 
+      if (!requireActiveProvider(res)) return;
+
       if (stepIdx < session.steps.length) {
         sessionRepo.updateStatus(session.id, 'running');
         sessionRepo.updateStepStatus(session.id, stepIdx, 'running', {

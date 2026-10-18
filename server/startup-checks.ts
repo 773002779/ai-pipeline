@@ -33,7 +33,10 @@ export function runStartupChecks(opts: { hasActiveProvider: boolean }): StartupC
         if (fs.existsSync(c)) { gitBashPath = c; gitBashStatus = 'ok'; break; }
       }
       if (gitBashStatus === 'missing') {
-        try { execSync('where bash', { stdio: 'ignore' }); gitBashStatus = 'ok'; } catch { /* 保持 missing */ }
+        try {
+          const firstLine = execSync('where bash', { encoding: 'utf-8' }).split(/\r?\n/)[0]?.trim();
+          if (firstLine) { gitBashPath = firstLine; gitBashStatus = 'ok'; }
+        } catch { /* 保持 missing */ }
       }
     }
   }

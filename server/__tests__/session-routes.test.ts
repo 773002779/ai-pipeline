@@ -185,6 +185,14 @@ describe('Session start requires an active provider', () => {
     expect(res2.status).toBe(400);
   });
 
+  it('rejects retry with 400 when no provider is active', async () => {
+    const id = await createSession('无供应商重试');
+    const res = await fetch(`${providerApiBase}/api/sessions/${id}/retry`, { method: 'POST' });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain('供应商');
+  });
+
   it('allows start once a provider is active', async () => {
     const p = providerRepo.create({
       name: 'DS', protocol: 'openai', baseUrl: 'http://localhost:9', apiKey: 'sk-x',

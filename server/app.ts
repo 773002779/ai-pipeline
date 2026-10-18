@@ -51,6 +51,7 @@ export function createApp(options: AppOptions = {}) {
       wsChannel: options.wsChannel,
       resourceRepo,
       stepRepo,
+      providerRepo,
     }));
   }
 
