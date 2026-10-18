@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Card, Row, Col, Statistic, Typography, Segmented, DatePicker, Table, List,
@@ -41,16 +41,20 @@ export default function Dashboard() {
     }
   }, [rangeKey, customRange]);
 
+  const loadSeqRef = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
       const [ov, us] = await Promise.all([statsApi.overview(), statsApi.usage(range)]);
+      if (seq !== loadSeqRef.current) return; // 已有更新的请求，丢弃本次结果
       setOverview(ov);
       setUsage(us);
     } catch {
+      if (seq !== loadSeqRef.current) return;
       message.error('加载统计数据失败');
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [range]);
 
