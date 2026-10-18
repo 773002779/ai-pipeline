@@ -85,6 +85,7 @@ async function main() {
     console.log(`  ║  Health:  /api/health                       ║`);
     console.log(`  ║  API:     /api/resources | steps | pipelines ║`);
     console.log(`  ║           /api/sessions                      ║`);
+    console.log(`  ║           /api/chat | /api/stats | /api/fs   ║`);
     console.log(`  ║  LLM代理: /_llm (内置令牌)  CLI: ${checks.cliBundled ? '已内置' : '缺失!'}          ║`);
     console.log(`  ║  GitBash: ${checks.gitBashStatus === 'ok' ? '已定位' : checks.gitBashStatus}   生效模型: ${checks.hasActiveProvider ? '已配置' : '未配置!'}  ║`);
     console.log(`  ║  Claude配置目录: .pipeline/claude-config (已隔离)        ║`);
