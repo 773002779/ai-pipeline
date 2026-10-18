@@ -9,6 +9,8 @@ import { createResourceRoutes } from './routes/resources';
 import { createStepRoutes } from './routes/steps';
 import { createPipelineRoutes } from './routes/pipelines';
 import { createSessionRoutes } from './routes/sessions';
+import { createProviderRoutes } from './routes/providers';
+import { ProviderRepository } from './db/repositories/providers';
 
 export interface AppOptions {
   dbHelper?: DbHelper;
@@ -31,10 +33,12 @@ export function createApp(options: AppOptions = {}) {
   if (options.dbHelper) {
     const resourceRepo = new ResourceRepository(options.dbHelper);
     const stepRepo = new StepRepository(options.dbHelper);
+    const providerRepo = new ProviderRepository(options.dbHelper);
 
     app.use('/api/resources', createResourceRoutes(options.dbHelper));
     app.use('/api/steps', createStepRoutes(options.dbHelper));
     app.use('/api/pipelines', createPipelineRoutes(options.dbHelper));
+    app.use('/api/providers', createProviderRoutes(providerRepo));
     app.use('/api/sessions', createSessionRoutes(options.dbHelper, {
       wsChannel: options.wsChannel,
       resourceRepo,
