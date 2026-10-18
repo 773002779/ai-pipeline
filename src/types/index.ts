@@ -32,6 +32,9 @@ export type {
   ApiResponse,
   PaginatedResponse,
   ResourceOverrides,
+  LlmProvider,
+  LlmProtocol,
+  ProviderSource,
   WsServerEvent,
   WsClientEvent,
 } from '../../shared/types';

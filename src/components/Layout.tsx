@@ -4,6 +4,7 @@ import { Layout as AntLayout, Menu, Typography, Space, Tag } from 'antd';
 import {
   DashboardOutlined,
   BlockOutlined,
+  ApiOutlined,
   ApartmentOutlined,
   NodeIndexOutlined,
   PlaySquareOutlined,
@@ -15,6 +16,7 @@ const { Header, Sider, Content } = AntLayout;
 const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/resources', icon: <BlockOutlined />, label: '资源管理' },
+  { key: '/providers', icon: <ApiOutlined />, label: '模型配置' },
   { key: '/steps', icon: <SettingOutlined />, label: '步骤管理' },
   { key: '/pipelines', icon: <ApartmentOutlined />, label: '流水线配置' },
   { key: '/sessions', icon: <NodeIndexOutlined />, label: '会话列表' },

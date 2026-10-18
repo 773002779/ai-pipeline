@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import ResourceManager from './pages/ResourceManager';
+import ProviderManager from './pages/ProviderManager';
 import StepManager from './pages/StepManager';
 import PipelineList from './pages/PipelineList';
 import PipelineEditor from './pages/PipelineEditor';
@@ -15,6 +16,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/resources" element={<ResourceManager />} />
+        <Route path="/providers" element={<ProviderManager />} />
         <Route path="/steps" element={<StepManager />} />
         <Route path="/pipelines" element={<PipelineList />} />
         <Route path="/pipelines/:id/edit" element={<PipelineEditor />} />
