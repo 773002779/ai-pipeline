@@ -9,12 +9,16 @@ import PipelineEditor from './pages/PipelineEditor';
 import SessionList from './pages/SessionList';
 import SessionDetail from './pages/SessionDetail';
 import SessionCreate from './pages/SessionCreate';
+import ChatList from './pages/ChatList';
+import ChatSession from './pages/ChatSession';
 
 export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/chat" element={<ChatList />} />
+        <Route path="/chat/:id" element={<ChatSession />} />
         <Route path="/resources" element={<ResourceManager />} />
         <Route path="/providers" element={<ProviderManager />} />
         <Route path="/steps" element={<StepManager />} />

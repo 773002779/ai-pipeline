@@ -3,6 +3,7 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { Layout as AntLayout, Menu, Typography, Space, Tag, Button, theme as antdTheme } from 'antd';
 import {
   DashboardOutlined,
+  CommentOutlined,
   BlockOutlined,
   ApiOutlined,
   ApartmentOutlined,
@@ -18,6 +19,7 @@ const { Header, Sider, Content } = AntLayout;
 
 const menuItems = [
   { key: '/', icon: <DashboardOutlined />, label: '仪表盘' },
+  { key: '/chat', icon: <CommentOutlined />, label: 'Claude 对话' },
   { key: '/resources', icon: <BlockOutlined />, label: '资源管理' },
   { key: '/providers', icon: <ApiOutlined />, label: '模型配置' },
   { key: '/steps', icon: <SettingOutlined />, label: '步骤管理' },
