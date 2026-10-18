@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { config } from './config';
 import { DbHelper } from './db/helper';
 import { ResourceRepository } from './db/repositories/resources';
@@ -50,6 +52,15 @@ export function createApp(options: AppOptions = {}) {
       resourceRepo,
       stepRepo,
     }));
+  }
+
+  // 生产模式：托管前端构建产物 + SPA fallback
+  if (options.staticDir && fs.existsSync(options.staticDir)) {
+    app.use(express.static(options.staticDir));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api') || req.path.startsWith('/_llm') || req.path.startsWith('/ws')) return next();
+      res.sendFile(path.join(options.staticDir!, 'index.html'));
+    });
   }
 
   // 404 handler

@@ -1,4 +1,7 @@
 import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { randomUUID } from 'crypto';
 import { createApp } from './app';
 import { config } from './config';
 import { getDb, saveDb, closeDb } from './db/connection';
@@ -8,7 +11,11 @@ import { ResourceLoader } from './resources/loader';
 import { ResourceRepository } from './db/repositories/resources';
 import { StepLoader } from './steps/loader';
 import { StepRepository } from './db/repositories/steps';
+import { ProviderRepository } from './db/repositories/providers';
 import { SessionChannel } from './ws/session-channel';
+import { createLlmProxy } from './llm/proxy';
+import { setInternalToken } from './llm/internal-token';
+import { runStartupChecks, type StartupChecks } from './startup-checks';
 
 async function main() {
   // Initialize database
@@ -41,12 +48,28 @@ async function main() {
   const stepCount = stepLoader.loadFromDirectory();
   console.log(`Loaded ${stepCount} step templates from .pipeline/steps/`);
 
+  // LLM 代理：内部令牌 + 自检 + 隔离的 Claude 配置目录
+  const internalToken = randomUUID();
+  setInternalToken(internalToken);
+  const providerRepo = new ProviderRepository(dbHelper);
+  const checks: StartupChecks = runStartupChecks({ hasActiveProvider: !!providerRepo.getActive() });
+  if (checks.gitBashPath) {
+    process.env.CLAUDE_CODE_GIT_BASH_PATH = checks.gitBashPath;
+  }
+  fs.mkdirSync(path.join(process.cwd(), '.pipeline', 'claude-config'), { recursive: true });
+
   // Create HTTP server (WebSocket attached first so routes can reference it)
   const server = http.createServer();
   const wsChannel = new SessionChannel(server);
   console.log('WebSocket server initialized at /ws/session');
 
-  const app = createApp({ dbHelper, wsChannel });
+  const app = createApp({
+    dbHelper,
+    wsChannel,
+    llmProxy: createLlmProxy(providerRepo, internalToken),
+    staticDir: process.env.NODE_ENV === 'production' ? path.join(process.cwd(), 'dist') : undefined,
+    checks,
+  });
   server.on('request', app);
 
   server.listen(config.port, () => {
@@ -58,6 +81,9 @@ async function main() {
     console.log(`  ║  Health:  /api/health                       ║`);
     console.log(`  ║  API:     /api/resources | steps | pipelines ║`);
     console.log(`  ║           /api/sessions                      ║`);
+    console.log(`  ║  LLM代理: /_llm (内置令牌)  CLI: ${checks.cliBundled ? '已内置' : '缺失!'}          ║`);
+    console.log(`  ║  GitBash: ${checks.gitBashStatus === 'ok' ? '已定位' : checks.gitBashStatus}   生效模型: ${checks.hasActiveProvider ? '已配置' : '未配置!'}  ║`);
+    console.log(`  ║  Claude配置目录: .pipeline/claude-config (已隔离)        ║`);
     console.log(`  ║  WS:      /ws/session?sessionId=xxx          ║`);
     console.log(`  ╚══════════════════════════════════════════════╝\n`);
   });
