@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { SessionRepository } from '../db/repositories/sessions';
 import { ResourceRepository } from '../db/repositories/resources';
 import { StepRepository } from '../db/repositories/steps';
+import { UsageRepository } from '../db/repositories/usage';
 import { SessionChannel } from '../ws/session-channel';
 import { ContextBuilder } from './context-builder';
 import { ResourceResolver } from './resource-resolver';
@@ -18,6 +19,7 @@ export class PipelineExecutor {
     private sessionRepo: SessionRepository,
     private resourceRepo: ResourceRepository,
     private stepRepo: StepRepository,
+    private usageRepo?: UsageRepository,
   ) {}
 
   /**
@@ -139,6 +141,18 @@ export class PipelineExecutor {
             wsChannel.broadcastToSession(session.id, {
               type: 'tool_use',
               data: { toolName: event.toolName, input: event.input },
+            });
+          }
+
+          if (event.type === 'usage' && this.usageRepo) {
+            this.usageRepo.add({
+              sessionId: session.id,
+              stepId: pipelineStep.id,
+              model: event.model,
+              inputTokens: event.usage.inputTokens,
+              outputTokens: event.usage.outputTokens,
+              cacheReadTokens: event.usage.cacheReadTokens,
+              cacheCreationTokens: event.usage.cacheCreationTokens,
             });
           }
 

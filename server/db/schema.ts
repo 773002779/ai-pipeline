@@ -110,6 +110,18 @@ export function createTables(db: SqlJsDatabase): void {
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )`,
+    `CREATE TABLE usage_records (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      step_id TEXT,
+      model TEXT NOT NULL,
+      input_tokens INTEGER NOT NULL DEFAULT 0,
+      output_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+      cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (session_id) REFERENCES sessions(id)
+    )`,
   ];
 
   for (const sql of statements) {
@@ -130,6 +142,8 @@ export function createTables(db: SqlJsDatabase): void {
     `CREATE INDEX idx_action_items_session ON action_items(session_id)`,
     `CREATE INDEX idx_action_items_status ON action_items(session_id, status)`,
     `CREATE UNIQUE INDEX idx_providers_one_active ON providers(is_active) WHERE is_active = 1`,
+    `CREATE INDEX idx_usage_created ON usage_records(created_at)`,
+    `CREATE INDEX idx_usage_session ON usage_records(session_id)`,
   ];
 
   for (const sql of indices) {

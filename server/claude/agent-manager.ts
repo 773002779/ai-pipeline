@@ -79,6 +79,7 @@ export class ClaudeAgentManager {
       });
 
       let tokenCount = 0;
+      let lastModel: string | undefined;
 
       for await (const message of q) {
         // Handle streaming events (thinking deltas from extended thinking)
@@ -109,6 +110,7 @@ export class ClaudeAgentManager {
         const msgData = this.extractMessageData(message);
 
         if (msgData.type === 'assistant') {
+          if (msgData.model) lastModel = msgData.model;
           if (msgData.thinking) {
             yield {
               type: 'thinking_stream',
@@ -152,6 +154,20 @@ export class ClaudeAgentManager {
             done: true,
             tokens: tokenCount,
           };
+
+          if (msgData.usage) {
+            yield {
+              type: 'usage',
+              stepId,
+              model: msgData.model || lastModel || 'unknown',
+              usage: {
+                inputTokens: msgData.usage.input_tokens ?? 0,
+                outputTokens: msgData.usage.output_tokens ?? 0,
+                cacheReadTokens: (msgData.usage as Record<string, number>).cache_read_input_tokens ?? 0,
+                cacheCreationTokens: (msgData.usage as Record<string, number>).cache_creation_input_tokens ?? 0,
+              },
+            };
+          }
         }
       }
 
@@ -400,14 +416,18 @@ If you find issues, bugs, or suggestions, record them as action items with sever
     thinking?: string;
     toolName?: string;
     toolInput?: Record<string, unknown>;
+    model?: string;
+    usage?: Record<string, number>;
   } {
     // SDK Messages can be various types; extract the common fields
     const msg = message as any;
+    const model = (msg.message?.model || msg.model) as string | undefined;
+    const usage = (msg.usage || msg.message?.usage) as Record<string, number> | undefined;
 
     if (msg.type === 'assistant' || msg.role === 'assistant') {
       const content = msg.content || msg.message?.content;
       if (typeof content === 'string') {
-        return { type: 'assistant', content };
+        return { type: 'assistant', content, model, usage };
       }
       if (Array.isArray(content)) {
         const textBlocks = content
@@ -441,18 +461,27 @@ If you find issues, bugs, or suggestions, record them as action items with sever
             type: 'assistant',
             content: textBlocks || '',
             thinking: thinkingBlocks || undefined,
+            model,
+            usage,
           };
         }
       }
-      return { type: 'assistant', content: JSON.stringify(content) };
+      return { type: 'assistant', content: JSON.stringify(content), model, usage };
     }
 
     if (msg.type === 'result') {
-      return { type: 'result', content: msg.result || msg.subtype || 'done' };
+      return { type: 'result', content: msg.result || msg.subtype || 'done', model, usage };
     }
 
     return { type: msg.type || 'unknown' };
   }
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
 }
 
 export type AgentEvent =
@@ -461,5 +490,6 @@ export type AgentEvent =
   | { type: 'thinking_stream'; stepId: string; content: string; done: boolean }
   | { type: 'ai_stream'; stepId: string; content: string; done: boolean; tokens?: number }
   | { type: 'tool_use'; stepId: string; toolName: string; input: Record<string, unknown> }
+  | { type: 'usage'; stepId: string; model: string; usage: TokenUsage }
   | { type: 'step_complete'; stepId: string; output: string; timestamp: string }
   | { type: 'step_error'; stepId: string; error: string; timestamp: string };

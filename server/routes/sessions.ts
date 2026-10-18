@@ -6,6 +6,7 @@ import { PipelineRepository } from '../db/repositories/pipelines';
 import { ResourceRepository } from '../db/repositories/resources';
 import { StepRepository } from '../db/repositories/steps';
 import { ProviderRepository } from '../db/repositories/providers';
+import { UsageRepository } from '../db/repositories/usage';
 import { PrecheckEngine } from '../engine/precheck';
 import { PipelineExecutor } from '../engine/executor';
 import { SessionChannel } from '../ws/session-channel';
@@ -46,7 +47,7 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
 
     const gen = deps.executorFactory
       ? deps.executorFactory(session)
-      : new PipelineExecutor(sessionRepo, deps.resourceRepo, deps.stepRepo)
+      : new PipelineExecutor(sessionRepo, deps.resourceRepo, deps.stepRepo, new UsageRepository(dbHelper))
           .execute(session, deps.wsChannel, config.outputDir, {
             defaultModel: deps.providerRepo?.getActive()?.model,
           });
