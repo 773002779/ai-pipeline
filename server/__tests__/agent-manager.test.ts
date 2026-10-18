@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ClaudeAgentManager } from '../claude/agent-manager';
 import { resolvePermission } from '../ws/permission-store';
+import { setInternalToken } from '../llm/internal-token';
 import type { AgentCallConfig } from '../claude/agent-manager';
 import type { Resource, StepTemplate, WsServerEvent } from '../../shared/types';
 
@@ -192,5 +193,26 @@ describe('ClaudeAgentManager permission hook', () => {
 
     resolvePermission(events[0].data.id as string, 'deny');
     await p;
+  });
+});
+
+describe('ClaudeAgentManager SDK env injection', () => {
+  it('routes the SDK through the in-process proxy and isolates config dir', () => {
+    setInternalToken('tok-test-1');
+    const mgr = new ClaudeAgentManager();
+    const options = (mgr as unknown as { buildSdkOptions: (c: AgentCallConfig) => Record<string, unknown> })
+      .buildSdkOptions(makeConfig());
+    const env = options.env as Record<string, string | undefined>;
+    expect(env.ANTHROPIC_BASE_URL).toContain('/_llm');
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('tok-test-1');
+    expect(env.CLAUDE_CONFIG_DIR).toContain('.pipeline');
+    expect(env.CLAUDE_CONFIG_DIR).toContain('claude-config');
+  });
+
+  it('falls back to defaultModel when template/agent do not pin a model', () => {
+    const mgr = new ClaudeAgentManager();
+    const options = (mgr as unknown as { buildSdkOptions: (c: AgentCallConfig) => Record<string, unknown> })
+      .buildSdkOptions(makeConfig({ defaultModel: 'deepseek-chat' }));
+    expect(options.model).toBe('deepseek-chat');
   });
 });

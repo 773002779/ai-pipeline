@@ -5,6 +5,7 @@ import { SessionRepository } from '../db/repositories/sessions';
 import { PipelineRepository } from '../db/repositories/pipelines';
 import { ResourceRepository } from '../db/repositories/resources';
 import { StepRepository } from '../db/repositories/steps';
+import { ProviderRepository } from '../db/repositories/providers';
 import { PrecheckEngine } from '../engine/precheck';
 import { PipelineExecutor } from '../engine/executor';
 import { SessionChannel } from '../ws/session-channel';
@@ -16,6 +17,7 @@ export interface SessionRouteDeps {
   wsChannel?: SessionChannel;
   resourceRepo: ResourceRepository;
   stepRepo: StepRepository;
+  providerRepo?: ProviderRepository;
   /** Test seam: build the step executor generator instead of the real one */
   executorFactory?: (session: Session) => AsyncGenerator<unknown>;
 }
@@ -29,6 +31,15 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
   // Track running executors per session (for pause/cancel)
   const runningExecutors = new Map<string, AsyncGenerator>();
 
+  /** 需要已激活供应商的路由守卫：未配置时返回 400 */
+  function requireActiveProvider(res: Response): boolean {
+    if (deps?.providerRepo && !deps.providerRepo.getActive()) {
+      res.status(400).json({ success: false, error: '未配置生效的大模型供应商，请在「模型配置」页激活' });
+      return false;
+    }
+    return true;
+  }
+
   /** Launch executor in background and drive it to completion */
   function launchExecutor(session: Session): void {
     if (!deps?.wsChannel || !deps?.resourceRepo || !deps?.stepRepo) return;
@@ -36,7 +47,9 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     const gen = deps.executorFactory
       ? deps.executorFactory(session)
       : new PipelineExecutor(sessionRepo, deps.resourceRepo, deps.stepRepo)
-          .execute(session, deps.wsChannel, config.outputDir);
+          .execute(session, deps.wsChannel, config.outputDir, {
+            defaultModel: deps.providerRepo?.getActive()?.model,
+          });
 
     runningExecutors.set(session.id, gen);
     (async () => {
@@ -141,6 +154,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
         return res.status(409).json({ success: false, error: 'Session is already running' });
       }
 
+      if (!requireActiveProvider(res)) return;
+
       // Set status to running and respond immediately
       sessionRepo.updateStatus(session.id, 'running');
       const updated = sessionRepo.getById(session.id)!;
@@ -190,6 +205,8 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     try {
       const session = sessionRepo.getById(req.params.id);
       if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+
+      if (!requireActiveProvider(res)) return;
 
       const updated = sessionRepo.updateStatus(session.id, 'running')!;
 

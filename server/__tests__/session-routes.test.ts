@@ -8,6 +8,7 @@ import { SessionRepository } from '../db/repositories/sessions';
 import { PipelineRepository } from '../db/repositories/pipelines';
 import { ResourceRepository } from '../db/repositories/resources';
 import { StepRepository } from '../db/repositories/steps';
+import { ProviderRepository } from '../db/repositories/providers';
 import { createSessionRoutes } from '../routes/sessions';
 import { waitForPermission } from '../ws/permission-store';
 import type { Database as SqlJsDatabase } from 'sql.js';
@@ -19,6 +20,9 @@ let server: http.Server;
 let baseUrl: string;
 let sessionRepo: SessionRepository;
 let stepRepo: StepRepository;
+let providerRepo: ProviderRepository;
+let appWithProviders: http.Server;
+let providerApiBase: string;   // 指向带 providerRepo 的第二个路由实例
 let executorFactoryCalls: Session[];
 let pipeline: Pipeline;
 
@@ -76,6 +80,24 @@ beforeAll(async () => {
       if (addr && typeof addr === 'object') {
         baseUrl = `http://localhost:${addr.port}`;
       }
+      resolve();
+    });
+  });
+
+  providerRepo = new ProviderRepository(dbHelper);
+
+  const app2 = express();
+  app2.use(express.json());
+  app2.use('/api/sessions', createSessionRoutes(dbHelper, {
+    wsChannel,
+    resourceRepo,
+    stepRepo,
+    providerRepo,
+    executorFactory: (session) => { executorFactoryCalls.push(session); return neverEnding(); },
+  }));
+  await new Promise<void>((resolve) => {
+    appWithProviders = app2.listen(0, () => {
+      providerApiBase = `http://localhost:${(appWithProviders.address() as { port: number }).port}`;
       resolve();
     });
   });
@@ -147,5 +169,30 @@ describe('Session routes', () => {
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('permission was not resolved on cancel')), 1_000)),
     ]);
     expect(result.behavior).toBe('deny');
+  });
+});
+
+describe('Session start requires an active provider', () => {
+  it('rejects start/resume with 400 when no provider is active', async () => {
+    const id = await createSession('无供应商');
+    // 走带 providerRepo 的实例；此时无激活供应商
+    const res = await fetch(`${providerApiBase}/api/sessions/${id}/start`, { method: 'POST' });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain('供应商');
+
+    const res2 = await fetch(`${providerApiBase}/api/sessions/${id}/resume`, { method: 'POST' });
+    expect(res2.status).toBe(400);
+  });
+
+  it('allows start once a provider is active', async () => {
+    const p = providerRepo.create({
+      name: 'DS', protocol: 'openai', baseUrl: 'http://localhost:9', apiKey: 'sk-x',
+      model: 'deepseek-chat', isActive: false, source: 'manual',
+    });
+    providerRepo.activate(p.id);
+    const id = await createSession('有供应商');
+    const res = await fetch(`${providerApiBase}/api/sessions/${id}/start`, { method: 'POST' });
+    expect(res.status).toBe(200);
   });
 });

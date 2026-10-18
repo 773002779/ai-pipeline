@@ -10,7 +10,10 @@
  */
 
 import type { CanUseTool, PermissionResult } from '@anthropic-ai/claude-agent-sdk';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import { config as appConfig } from '../config';
+import { getInternalToken } from '../llm/internal-token';
 import type { SessionChannel } from '../ws/session-channel';
 import { waitForPermission } from '../ws/permission-store';
 import type { StepTemplate, Resource, Workspace } from '../../shared/types';
@@ -34,6 +37,7 @@ export interface AgentCallConfig {
   previousOutputs: Array<{ stepName: string; summary: string; path: string }>;
   requirement: string;
   environment?: Record<string, unknown>;
+  defaultModel?: string;   // 当前生效供应商的默认模型名（路由层传入）
   wsChannel: SessionChannel;
 }
 
@@ -183,6 +187,11 @@ export class ClaudeAgentManager {
       }
     }
 
+    // SDK 请求统一走进程内协议转换代理；配置目录隔离本机 ~/.claude
+    env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${appConfig.port}/_llm`;
+    env.ANTHROPIC_AUTH_TOKEN = getInternalToken() || 'missing-internal-token';
+    env.CLAUDE_CONFIG_DIR = path.join(process.cwd(), '.pipeline', 'claude-config');
+
     const sdkOptions: Record<string, unknown> = {
       cwd: config.workspaces[0]?.path || process.cwd(),
       // Additional directories for multi-workspace
@@ -201,12 +210,12 @@ export class ClaudeAgentManager {
       sdkOptions.tools = tools;
     }
 
-    // Resolve model: template override → agent config → env → default
+    // Resolve model: template override → agent config → active provider default
     const resolvedModel =
       config.template.model ||
       (config.resolvedAgent?.config as { model?: string })?.model ||
-      process.env.ANTHROPIC_MODEL ||
-      undefined; // Let SDK/CLI use its own default
+      config.defaultModel ||
+      undefined; // 都没有则交给 CLI 默认
     if (resolvedModel) {
       sdkOptions.model = resolvedModel;
     }

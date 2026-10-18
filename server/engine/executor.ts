@@ -28,6 +28,7 @@ export class PipelineExecutor {
     session: Session,
     wsChannel: SessionChannel,
     outputDir: string,
+    options?: { defaultModel?: string },
   ): AsyncGenerator<AgentEvent> {
     const resourceResolver = new ResourceResolver(this.resourceRepo);
     const pipelineSteps = session.pipelineSnapshot.steps;
@@ -105,6 +106,7 @@ export class PipelineExecutor {
           previousOutputs: context?.previousOutputs || [],
           requirement: session.requirement,
           environment: session.environment as Record<string, unknown> | undefined,
+          defaultModel: options?.defaultModel,
           wsChannel,
         })) {
           // Forward events to WebSocket
