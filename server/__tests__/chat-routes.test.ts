@@ -6,6 +6,8 @@ import { createTables } from '../db/schema';
 import { DbHelper } from '../db/helper';
 import { createChatRoutes } from '../routes/chat';
 import { SessionRepository } from '../db/repositories/sessions';
+import { UsageRepository } from '../db/repositories/usage';
+import { ChatTurnRunner } from '../chat/turn-runner';
 import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 
 let dbHelper: DbHelper;
@@ -109,5 +111,74 @@ describe('chat 会话 CRUD', () => {
 
     const missing = await req('PUT', '/api/chat/missing-id/model', { model: 'gpt-4o' });
     expect(missing.status).toBe(404);
+  });
+});
+
+describe('chat messages/stop', () => {
+  it('发消息 202；生成中再次发送 409；stop 后恢复', async () => {
+    const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: process.cwd(), type: 'unknown' }] });
+    const id = created.body.data.id;
+
+    // 挂起的伪 agentManager
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const hangingRunner = new ChatTurnRunner({
+      sessionRepo: new SessionRepository(dbHelper),
+      usageRepo: new UsageRepository(dbHelper),
+      agentManager: {
+        async *executeChatTurn(cfg: any): AsyncGenerator<any> {
+          yield { type: 'ai_stream', content: 'x', done: false };
+          await gate;
+          yield { type: 'ai_stream', content: '', done: true };
+        },
+      },
+    });
+
+    // 无生效供应商 → 400
+    const blocked = await fetch(`${baseUrl}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'hi' }),
+    });
+    expect(blocked.status).toBe(400);
+
+    // 挂 providerRepo 依赖重新挂载一个带 runner 的实例（直接以第二个路由实例测 202/409/stop）
+    const app2 = express();
+    app2.use(express.json());
+    app2.use('/api/chat', createChatRoutes({
+      dbHelper,
+      runner: hangingRunner,
+      providerRepo: { getActive: () => ({ model: 'm' }) } as never,
+    }));
+    const server2 = http.createServer(app2);
+    await new Promise<void>((resolve) => server2.listen(0, resolve));
+    const base2 = `http://127.0.0.1:${(server2.address() as any).port}`;
+
+    const send = await fetch(`${base2}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'hi' }),
+    });
+    expect(send.status).toBe(202);
+    await new Promise(r => setTimeout(r, 30));
+
+    const again = await fetch(`${base2}/api/chat/${id}/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'again' }),
+    });
+    expect(again.status).toBe(409);
+
+    const stop = await fetch(`${base2}/api/chat/${id}/stop`, { method: 'POST' });
+    expect(stop.status).toBe(200);
+    release();
+    await new Promise(r => setTimeout(r, 30));
+    server2.close();
+  });
+
+  it('流水线会话发消息 404', async () => {
+    // 直接对不存在的 id
+    const res = await fetch(`${baseUrl}/api/chat/missing-id/messages`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: 'hi' }),
+    });
+    expect(res.status).toBe(404);
   });
 });

@@ -188,10 +188,90 @@ export class ClaudeAgentManager {
   }
 
   /**
-   * Build the SDK query options: cwd, tools, model, MCP servers,
-   * permission hook and platform env.
+   * Claude 对话页：单轮执行。
+   * persistSession + resume 实现多轮；includePartialMessages 实现
+   * 文本/思考逐 token 流式。文本增量从 stream_event 取，assistant
+   * 完整消息只用于提取工具调用与 model（避免内容重复推送）。
    */
-  buildSdkOptions(config: AgentCallConfig): Record<string, unknown> {
+  async *executeChatTurn(config: ChatTurnConfig): AsyncGenerator<ChatTurnEvent> {
+    try {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+
+      const sdkOptions: Record<string, unknown> = {
+        cwd: config.workspaces[0]?.path || process.cwd(),
+        canUseTool: this.createPermissionHook(config.wsChannel, config.sessionId),
+        env: this.buildEnv(),
+        persistSession: true,
+        includePartialMessages: true,
+        abortController: config.abortController ?? new AbortController(),
+      };
+      if (config.model) sdkOptions.model = config.model;
+      if (config.resumeSessionId) sdkOptions.resume = config.resumeSessionId;
+
+      const q = query({ prompt: config.prompt, options: sdkOptions });
+      let lastModel: string | undefined;
+
+      for await (const message of q as AsyncGenerator<Record<string, unknown>>) {
+        const sdkSessionId = (message as { session_id?: string }).session_id;
+        if (typeof sdkSessionId === 'string' && sdkSessionId) {
+          yield { type: 'sdk_session', sdkSessionId };
+        }
+
+        if (message.type === 'stream_event') {
+          const event = (message as { event?: any }).event;
+          if (event?.type === 'content_block_delta') {
+            if (event.delta?.type === 'thinking_delta') {
+              yield { type: 'thinking_stream', content: event.delta.thinking || '', done: false };
+            } else if (event.delta?.type === 'text_delta') {
+              yield { type: 'ai_stream', content: event.delta.text || '', done: false };
+            }
+          }
+          continue;
+        }
+
+        const msgData = this.extractMessageData(message);
+        if (msgData.model) lastModel = msgData.model;
+
+        if (message.type === 'assistant' || (message as { role?: string }).role === 'assistant') {
+          for (const t of this.extractToolUses(message)) {
+            yield { type: 'tool_use', toolName: t.name, input: t.input };
+          }
+        }
+
+        if (message.type === 'result') {
+          yield { type: 'thinking_stream', content: '', done: true };
+          if (msgData.usage) {
+            yield {
+              type: 'usage',
+              model: msgData.model || lastModel || 'unknown',
+              usage: {
+                inputTokens: msgData.usage.input_tokens ?? 0,
+                outputTokens: msgData.usage.output_tokens ?? 0,
+                cacheReadTokens: msgData.usage.cache_read_input_tokens ?? 0,
+                cacheCreationTokens: msgData.usage.cache_creation_input_tokens ?? 0,
+              },
+            };
+          }
+          yield { type: 'ai_stream', content: '', done: true };
+        }
+      }
+    } catch (err) {
+      yield { type: 'turn_error', error: (err as Error).message };
+    }
+  }
+
+  /** 提取一条 assistant 消息中的全部工具调用块 */
+  private extractToolUses(message: Record<string, unknown>): Array<{ name: string; input: Record<string, unknown> }> {
+    const msg = message as { content?: unknown; message?: { content?: unknown } };
+    const content = msg.content || msg.message?.content;
+    if (!Array.isArray(content)) return [];
+    return (content as Array<Record<string, unknown>>)
+      .filter((b): b is { type: 'tool_use'; name: string; input: Record<string, unknown> } => b.type === 'tool_use')
+      .map(b => ({ name: b.name, input: b.input }));
+  }
+
+  /** SDK 运行环境：git-bash 探测 + 进程内 LLM 代理 + 隔离配置目录 */
+  private buildEnv(): Record<string, string | undefined> {
     const env = { ...process.env } as Record<string, string | undefined>;
     if (process.platform === 'win32' && !env.CLAUDE_CODE_GIT_BASH_PATH) {
       const fs = require('fs');
@@ -202,11 +282,18 @@ export class ClaudeAgentManager {
         }
       }
     }
-
-    // SDK 请求统一走进程内协议转换代理；配置目录隔离本机 ~/.claude
     env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${appConfig.port}/_llm`;
     env.ANTHROPIC_AUTH_TOKEN = getInternalToken() || 'missing-internal-token';
     env.CLAUDE_CONFIG_DIR = path.join(process.cwd(), '.pipeline', 'claude-config');
+    return env;
+  }
+
+  /**
+   * Build the SDK query options: cwd, tools, model, MCP servers,
+   * permission hook and platform env.
+   */
+  buildSdkOptions(config: AgentCallConfig): Record<string, unknown> {
+    const env = this.buildEnv();
 
     const sdkOptions: Record<string, unknown> = {
       cwd: config.workspaces[0]?.path || process.cwd(),
@@ -493,3 +580,21 @@ export type AgentEvent =
   | { type: 'usage'; stepId: string; model: string; usage: TokenUsage }
   | { type: 'step_complete'; stepId: string; output: string; timestamp: string }
   | { type: 'step_error'; stepId: string; error: string; timestamp: string };
+
+export interface ChatTurnConfig {
+  sessionId: string;
+  prompt: string;
+  model?: string;
+  resumeSessionId?: string;
+  workspaces: Workspace[];
+  abortController?: AbortController;
+  wsChannel: SessionChannel;
+}
+
+export type ChatTurnEvent =
+  | { type: 'sdk_session'; sdkSessionId: string }
+  | { type: 'ai_stream'; content: string; done: boolean }
+  | { type: 'thinking_stream'; content: string; done: boolean }
+  | { type: 'tool_use'; toolName: string; input: Record<string, unknown> }
+  | { type: 'usage'; model: string; usage: TokenUsage }
+  | { type: 'turn_error'; error: string };

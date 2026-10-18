@@ -2,14 +2,22 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionRepository } from '../db/repositories/sessions';
 import { ProviderRepository } from '../db/repositories/providers';
+import { UsageRepository } from '../db/repositories/usage';
 import { ensureBuiltinChatPipeline } from '../chat/builtin-pipeline';
+import { ChatTurnRunner } from '../chat/turn-runner';
+import type { ChatAgentLike } from '../chat/turn-runner';
+import { ClaudeAgentManager } from '../claude/agent-manager';
 import { BUILTIN_CHAT_PIPELINE_ID } from '../../shared/types';
 import type { DbHelper } from '../db/helper';
+import type { SessionChannel } from '../ws/session-channel';
 import type { Session } from '../../shared/types';
 
 export interface ChatRouteDeps {
   dbHelper: DbHelper;
   providerRepo?: ProviderRepository;
+  wsChannel?: SessionChannel;
+  agentManager?: ChatAgentLike;
+  runner?: ChatTurnRunner;
 }
 
 export function createChatRoutes(deps: ChatRouteDeps): Router {
@@ -18,7 +26,7 @@ export function createChatRoutes(deps: ChatRouteDeps): Router {
   const builtinPipeline = ensureBuiltinChatPipeline(deps.dbHelper);
 
   function requireActiveProvider(res: Response): boolean {
-    if (deps.providerRepo && !deps.providerRepo.getActive()) {
+    if (!deps.providerRepo?.getActive()) {
       res.status(400).json({ success: false, error: '未配置生效的大模型供应商，请在「模型配置」页激活' });
       return false;
     }
@@ -28,6 +36,13 @@ export function createChatRoutes(deps: ChatRouteDeps): Router {
   function isChatSession(s: Session | null): s is Session {
     return !!s && s.pipelineId === BUILTIN_CHAT_PIPELINE_ID;
   }
+
+  const runner = deps.runner ?? new ChatTurnRunner({
+    sessionRepo,
+    usageRepo: new UsageRepository(deps.dbHelper),
+    wsChannel: deps.wsChannel,
+    agentManager: deps.agentManager ?? new ClaudeAgentManager(),
+  });
 
   // 创建对话
   router.post('/sessions', (req: Request, res: Response) => {
@@ -87,6 +102,37 @@ export function createChatRoutes(deps: ChatRouteDeps): Router {
       if (!isChatSession(session)) return res.status(404).json({ success: false, error: '对话不存在' });
       sessionRepo.deleteCascade(session.id);
       res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
+  // 发送一轮消息（后台执行，流式经 WS 推送）
+  router.post('/:id/messages', (req: Request, res: Response) => {
+    try {
+      const session = sessionRepo.getById(req.params.id);
+      if (!isChatSession(session)) return res.status(404).json({ success: false, error: '对话不存在' });
+      const { content } = req.body || {};
+      if (!content?.trim()) return res.status(400).json({ success: false, error: 'content is required' });
+      if (!requireActiveProvider(res)) return;
+      if (runner.isRunning(session.id)) {
+        return res.status(409).json({ success: false, error: '当前回复生成中，请稍候或先停止' });
+      }
+      const defaultModel = deps.providerRepo?.getActive()?.model;
+      runner.startTurn(session, content.trim(), defaultModel);
+      res.status(202).json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
+  // 停止当前轮
+  router.post('/:id/stop', (req: Request, res: Response) => {
+    try {
+      const session = sessionRepo.getById(req.params.id);
+      if (!isChatSession(session)) return res.status(404).json({ success: false, error: '对话不存在' });
+      const stopped = runner.stop(session.id);
+      res.json({ success: true, data: { stopped } });
     } catch (err) {
       res.status(500).json({ success: false, error: (err as Error).message });
     }

@@ -58,7 +58,11 @@ export function createApp(options: AppOptions = {}) {
       stepRepo,
       providerRepo,
     }));
-    app.use('/api/chat', createChatRoutes({ dbHelper: options.dbHelper, providerRepo }));
+    app.use('/api/chat', createChatRoutes({
+      dbHelper: options.dbHelper,
+      providerRepo,
+      wsChannel: options.wsChannel,
+    }));
   }
 
   // 生产模式：托管前端构建产物 + SPA fallback
