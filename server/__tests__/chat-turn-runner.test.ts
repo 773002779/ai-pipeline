@@ -77,6 +77,38 @@ describe('ChatTurnRunner', () => {
     expect(loaded.status).toBe('idle');
   });
 
+  it('WS 事件转发：running→ai_message 流→idle 状态广播', async () => {
+    broadcasts.length = 0;
+    const session = makeSession('r7', 'm');
+    const runner = runnerWith(async function* (): AsyncGenerator<ChatTurnEvent> {
+      yield { type: 'ai_stream', content: 'A', done: false };
+      yield { type: 'thinking_stream', content: 't', done: false };
+      yield { type: 'tool_use', toolName: 'Read', input: { file_path: '/x' } };
+      yield { type: 'ai_stream', content: 'B', done: false };
+      yield { type: 'ai_stream', content: '', done: true };
+    });
+
+    runner.startTurn(session, 'hi', 'm');
+    await flush();
+
+    expect(broadcasts.map(b => b.type)).toEqual([
+      'status_change',
+      'ai_message',
+      'thinking_delta',
+      'tool_use',
+      'ai_message',
+      'ai_message',
+      'status_change',
+    ]);
+    expect(broadcasts[0]).toEqual({ type: 'status_change', data: { status: 'running', currentStepIndex: 0 } });
+    expect(broadcasts[1]).toEqual({ type: 'ai_message', data: { content: 'A', done: false } });
+    expect(broadcasts[2]).toEqual({ type: 'thinking_delta', data: { content: 't', done: false } });
+    expect(broadcasts[3]).toEqual({ type: 'tool_use', data: { toolName: 'Read', input: { file_path: '/x' } } });
+    expect(broadcasts[4]).toEqual({ type: 'ai_message', data: { content: 'B', done: false } });
+    expect(broadcasts[5]).toEqual({ type: 'ai_message', data: { content: '', done: true } });
+    expect(broadcasts[6]).toEqual({ type: 'status_change', data: { status: 'idle', currentStepIndex: 0 } });
+  });
+
   it('@引用注入 prompt 且越界引用被剔除', async () => {
     const session = makeSession('r2');
     let capturedPrompt = '';
