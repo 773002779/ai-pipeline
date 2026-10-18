@@ -67,7 +67,7 @@ export class ChatTurnRunner {
       workspaces: session.workspaces,
       abortController: controller,
       wsChannel: this.deps.wsChannel as never,
-    }, controller, { persistSdkSession: true, clearSummaryOnSdkSession: !!summaryBlock })
+    }, controller, { persistSdkSession: true, clearSummaryOnSdkSession: !!summaryBlock, silent: false })
       .then((result) => {
         if (result.content || result.thinking) {
           this.deps.sessionRepo.addMessage(
@@ -102,7 +102,7 @@ export class ChatTurnRunner {
       abortController: controller,
       wsChannel: this.deps.wsChannel as never,
       disableTools: true,
-    }, controller, { persistSdkSession: false, clearSummaryOnSdkSession: false })
+    }, controller, { persistSdkSession: false, clearSummaryOnSdkSession: false, silent: true })
       .then((result) => {
         if (result.error && !controller.signal.aborted) {
           this.deps.sessionRepo.addMessage(session.id, null, 'system', '⚠️ 上下文压缩失败，可稍后重试 /compact。');
@@ -159,7 +159,7 @@ export class ChatTurnRunner {
     session: Session,
     config: ChatTurnConfig,
     controller: AbortController,
-    opts: { persistSdkSession: boolean; clearSummaryOnSdkSession: boolean },
+    opts: { persistSdkSession: boolean; clearSummaryOnSdkSession: boolean; silent?: boolean },
   ): Promise<{ content: string; thinking: string; error: string | null }> {
     const accumulated = { content: '', thinking: '' };
     let turnError: string | null = null;
@@ -176,15 +176,21 @@ export class ChatTurnRunner {
             break;
           case 'thinking_stream':
             if (!event.done) accumulated.thinking += event.content;
-            this.deps.wsChannel?.broadcastToSession(session.id, {
-              type: 'thinking_delta', data: { content: event.content, done: event.done },
-            });
+            // silent（/compact 摘要轮）不广播：摘要不作为助手消息流式展示，
+            // 否则瞬时气泡会在 idle 回读后消失
+            if (!opts.silent) {
+              this.deps.wsChannel?.broadcastToSession(session.id, {
+                type: 'thinking_delta', data: { content: event.content, done: event.done },
+              });
+            }
             break;
           case 'ai_stream':
             if (!event.done) accumulated.content += event.content;
-            this.deps.wsChannel?.broadcastToSession(session.id, {
-              type: 'ai_message', data: { content: event.content, done: event.done },
-            });
+            if (!opts.silent) {
+              this.deps.wsChannel?.broadcastToSession(session.id, {
+                type: 'ai_message', data: { content: event.content, done: event.done },
+              });
+            }
             break;
           case 'tool_use':
             this.deps.wsChannel?.broadcastToSession(session.id, {

@@ -107,17 +107,25 @@ export default function ChatSession() {
   const handleSend = async () => {
     const content = input.trim();
     if (!id || !content || running) return;
+    const isCommand = content.startsWith('/');
     setSending(true);
     try {
       await chatApi.sendMessage(id, content);
       setInput('');
-      // 乐观追加用户气泡：生成期间用户消息立即可见，
-      // 并让 useLiveMessages 的追加逻辑为新回复开一个新助手气泡
-      setMessages(prev => [...prev, {
-        id: `user-${Date.now()}`, sessionId: id, role: 'user' as const,
-        content, createdAt: new Date().toISOString(),
-      }]);
-      setSession(prev => prev ? { ...prev, status: 'running' } : prev);
+      if (isCommand) {
+        // 内置命令服务端同步完成（/clear 已广播 idle；/compact no-op 无广播）——
+        // 不做乐观 running，直接回读消息与会话状态
+        await loadMessages();
+        await loadSession();
+      } else {
+        // 乐观追加用户气泡：生成期间用户消息立即可见，
+        // 并让 useLiveMessages 的追加逻辑为新回复开一个新助手气泡
+        setMessages(prev => [...prev, {
+          id: `user-${Date.now()}`, sessionId: id, role: 'user' as const,
+          content, createdAt: new Date().toISOString(),
+        }]);
+        setSession(prev => prev ? { ...prev, status: 'running' } : prev);
+      }
     } catch (err: any) {
       message.error(err.message || '发送失败');
     } finally {

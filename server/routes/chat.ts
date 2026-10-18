@@ -126,6 +126,8 @@ export function createChatRoutes(deps: ChatRouteDeps): Router {
       if (command?.type === 'clear') {
         sessionRepo.resetChatContext(session.id);
         sessionRepo.addMessage(session.id, null, 'system', '🧹 上下文已清理，模型将重新开始（聊天记录保留）。');
+        // 持久化 idle（上一轮可能以 error 收尾，仅广播无法覆盖 DB 状态）
+        sessionRepo.updateStatus(session.id, 'idle');
         deps.wsChannel?.broadcastToSession(session.id, {
           type: 'status_change', data: { status: 'idle', currentStepIndex: 0 },
         });

@@ -193,6 +193,7 @@ describe('ChatTurnRunner', () => {
   });
 
   it('startCompact：resume 旧会话、禁工具，摘要落库、句柄清空、系统消息、状态 idle', async () => {
+    broadcasts.length = 0;
     const session = makeSession('r9');
     sessionRepo.updateChatFields('r9', { chatSdkSessionId: 'sdk-old' });
     let captured: any;
@@ -209,6 +210,10 @@ describe('ChatTurnRunner', () => {
     expect(captured.disableTools).toBe(true);
     expect(captured.resumeSessionId).toBe('sdk-old');
     expect(captured.prompt).toContain('只输出摘要正文');
+    // 静默轮：摘要流不广播（否则前端瞬时气泡在 idle 回读后消失）；仅 running→idle 两次状态广播
+    expect(broadcasts.some(b => b.type === 'ai_message')).toBe(false);
+    expect(broadcasts.some(b => b.type === 'thinking_delta')).toBe(false);
+    expect(broadcasts.filter(b => b.type === 'status_change').map(b => b.data.status)).toEqual(['running', 'idle']);
     const loaded = sessionRepo.getById('r9')!;
     expect(loaded.chatSummary).toContain('未完成：补测试');
     expect(loaded.chatSdkSessionId).toBeUndefined();

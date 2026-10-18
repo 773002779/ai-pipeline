@@ -186,15 +186,17 @@ describe('chat messages/stop', () => {
   it('/clear：202 + 系统消息 + 清空会话句柄（无供应商也可用）', async () => {
     const created = await req('POST', '/api/chat/sessions', { workspaces: [{ name: 'w', path: 'D:/tmp', type: 'unknown' }], model: 'm' });
     const id = created.body.data.id;
+    const repo = new SessionRepository(dbHelper);
     // 直接种 SDK 会话句柄（绕过真实轮次）
-    new SessionRepository(dbHelper)
-      .updateChatFields(id, { chatSdkSessionId: 'sdk-x', chatSummary: '旧摘要' });
+    repo.updateChatFields(id, { chatSdkSessionId: 'sdk-x', chatSummary: '旧摘要' });
+    // 上一轮可能以 error 收尾：/clear 应把 DB 状态持久化回 idle（仅广播不够）
+    repo.updateStatus(id, 'error');
 
     const { status } = await req('POST', `/api/chat/${id}/messages`, { content: '/clear' });
     expect(status).toBe(202);
 
-    const repo = new SessionRepository(dbHelper);
     const loaded = repo.getById(id)!;
+    expect(loaded.status).toBe('idle');
     expect(loaded.chatSdkSessionId).toBeUndefined();
     expect(loaded.chatSummary).toBeUndefined();
     expect(loaded.chatModel).toBe('m'); // 模型选择保留
