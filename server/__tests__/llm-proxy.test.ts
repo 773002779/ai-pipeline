@@ -113,6 +113,17 @@ describe('LLM proxy', () => {
     expect(r.text).toContain('event: message_stop');
   });
 
+  it('returns an error response instead of crashing on a malformed body', async () => {
+    // messages 为非可迭代值会让 anthropicToOpenai 抛错：必须由 catch 兜底而非击穿进程
+    const r = await post({ messages: 5 });
+    expect([500, 502]).toContain(r.status);
+    const body = JSON.parse(r.text);
+    expect(body.type).toBe('error');
+    // 进程必须存活：随后的正常请求仍成功
+    const ok = await post(ANTHROPIC_REQ);
+    expect(ok.status).toBe(200);
+  });
+
   it('passes Anthropic-protocol requests through without modifying the body', async () => {
     repo.create({ name: '官方', protocol: 'anthropic', baseUrl: upstreamUrl, apiKey: 'sk-ant', model: 'claude-x', isActive: false, source: 'manual' });
     const target = repo.list().find(p => p.protocol === 'anthropic')!;

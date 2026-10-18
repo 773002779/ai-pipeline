@@ -134,11 +134,12 @@ export function createLlmProxy(repo: ProviderRepository, internalToken: string):
     }
 
     // ---- OpenAI 协议：转换 ----
-    const body = anthropicToOpenai(req.body as AnthropicMessagesRequest, {
-      temperature: provider.temperature ?? undefined,
-      maxTokens: provider.maxTokens ?? undefined,
-    });
     try {
+      // 转换在 try 内：畸形请求体的抛错走 catch → 502，而非异步拒绝击穿进程
+      const body = anthropicToOpenai(req.body as AnthropicMessagesRequest, {
+        temperature: provider.temperature ?? undefined,
+        maxTokens: provider.maxTokens ?? undefined,
+      });
       const upstream = await fetch(openaiChatUrl(provider.baseUrl), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
