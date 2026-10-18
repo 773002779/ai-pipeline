@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout as AntLayout, Menu, Typography, Space, Tag } from 'antd';
+import { Layout as AntLayout, Menu, Typography, Space, Tag, Button, theme as antdTheme } from 'antd';
 import {
   DashboardOutlined,
   BlockOutlined,
@@ -9,7 +9,10 @@ import {
   NodeIndexOutlined,
   PlaySquareOutlined,
   SettingOutlined,
+  SunOutlined,
+  MoonOutlined,
 } from '@ant-design/icons';
+import { useThemeMode } from '../theme/ThemeContext';
 
 const { Header, Sider, Content } = AntLayout;
 
@@ -26,6 +29,8 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const { theme, toggle } = useThemeMode();
+  const { token } = antdTheme.useToken();
 
   const selectedKey = '/' + location.pathname.split('/')[1];
 
@@ -37,27 +42,33 @@ export default function Layout() {
           alignItems: 'center',
           justifyContent: 'space-between',
           padding: '0 24px',
-          background: '#141414',
-          borderBottom: '1px solid #303030',
+          background: token.colorBgContainer,
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
         }}
       >
         <Space>
-          <PlaySquareOutlined style={{ fontSize: 24, color: '#1677ff' }} />
-          <Typography.Title level={4} style={{ margin: 0, color: '#fff' }}>
+          <PlaySquareOutlined style={{ fontSize: 24, color: token.colorPrimary }} />
+          <Typography.Title level={4} style={{ margin: 0 }}>
             AI Pipeline
           </Typography.Title>
           <Tag color="blue">v1.0</Tag>
         </Space>
-        <Typography.Text type="secondary">
-          本地 Claude 流水线代码开发平台
-        </Typography.Text>
+        <Space>
+          <Typography.Text type="secondary">本地 Claude 流水线代码开发平台</Typography.Text>
+          <Button
+            type="text"
+            icon={theme === 'dark' ? <SunOutlined /> : <MoonOutlined />}
+            onClick={toggle}
+            title={theme === 'dark' ? '切换到白色主题' : '切换到暗色主题'}
+          />
+        </Space>
       </Header>
       <AntLayout>
         <Sider
           collapsible
           collapsed={collapsed}
           onCollapse={setCollapsed}
-          style={{ background: '#141414' }}
+          style={{ background: token.colorBgContainer }}
           width={200}
         >
           <Menu
@@ -68,7 +79,7 @@ export default function Layout() {
             style={{ background: 'transparent', borderRight: 0 }}
           />
         </Sider>
-        <Content style={{ padding: 24, background: '#1f1f1f', minHeight: 'calc(100vh - 64px)' }}>
+        <Content style={{ padding: 24, background: token.colorBgLayout, minHeight: 'calc(100vh - 64px)' }}>
           <Outlet />
         </Content>
       </AntLayout>

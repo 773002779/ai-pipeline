@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  Typography, Card, Button, Space, Tag, Steps, message,
+  Typography, Card, Button, Space, Tag, Steps, message, theme,
   Input, Descriptions, Row, Col, Empty, Spin, Divider, Badge,
 } from 'antd';
 import {
@@ -14,6 +14,9 @@ import { useWebSocket } from '../hooks/useWebSocket';
 import PermissionModal from '../components/PermissionModal';
 import OutputViewer from '../components/OutputViewer';
 import type { Session, SessionStatus, SessionStepStatus, Message as Msg, PermissionRequest } from '../types';
+
+// antd 未导出 ThemeToken 类型（antd/es/theme/internal 无此导出），按 brief 回退方案取 useToken 的 token 类型
+type ThemeToken = ReturnType<typeof theme.useToken>['token'];
 
 const STATUS_TAGS: Record<SessionStatus, { color: string; label: string }> = {
   idle: { color: 'default', label: '等待中' }, precheck: { color: 'processing', label: '预检中' },
@@ -29,6 +32,7 @@ const STEP_ICONS: Record<SessionStepStatus, string> = {
 export default function SessionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { token } = theme.useToken();
   const [session, setSession] = useState<Session | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -182,7 +186,7 @@ export default function SessionDetail() {
   };
 
   // Thinking section sub-component
-  function ThinkingSection({ thinking, streaming }: { thinking: string; streaming: boolean }) {
+  function ThinkingSection({ thinking, streaming, token }: { thinking: string; streaming: boolean; token: ThemeToken }) {
     const [collapsed, setCollapsed] = useState(true);
     useEffect(() => {
       if (streaming) {
@@ -197,8 +201,8 @@ export default function SessionDetail() {
       <div style={{
         marginTop: 6,
         marginBottom: 8,
-        background: '#1a1a2e',
-        border: '1px solid #333366',
+        background: token.colorFillSecondary,
+        border: `1px solid ${token.colorBorder}`,
         borderRadius: 6,
         padding: '6px 10px',
         fontSize: 12,
@@ -212,19 +216,19 @@ export default function SessionDetail() {
             alignItems: 'center',
             gap: 6,
             userSelect: 'none',
-            color: '#8888cc',
+            color: token.colorTextSecondary,
           }}
         >
           <span>🧠</span>
           <span style={{ fontWeight: 500, fontSize: 11 }}>
             思考过程
             {streaming && (
-              <span style={{ marginLeft: 4, color: '#6666aa', fontSize: 10 }}>
+              <span style={{ marginLeft: 4, color: token.colorTextQuaternary, fontSize: 10 }}>
                 (思考中...)
               </span>
             )}
           </span>
-          <span style={{ marginLeft: 'auto', fontSize: 10, color: '#666' }}>
+          <span style={{ marginLeft: 'auto', fontSize: 10, color: token.colorTextQuaternary }}>
             {collapsed ? '▶ 展开' : '▼ 收起'}
           </span>
         </div>
@@ -232,9 +236,9 @@ export default function SessionDetail() {
           <div style={{
             marginTop: 6,
             padding: '6px 8px',
-            background: '#12121f',
+            background: token.colorFillTertiary,
             borderRadius: 4,
-            color: '#a0a0d0',
+            color: token.colorTextSecondary,
             fontStyle: 'italic',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
@@ -336,17 +340,17 @@ export default function SessionDetail() {
             size="small"
             bodyStyle={{ padding: 0 }}
           >
-            <div style={{ height: 450, overflow: 'auto', padding: 16, background: '#1a1a1a' }}>
+            <div style={{ height: 450, overflow: 'auto', padding: 16, background: token.colorBgLayout }}>
               {messages.length === 0 && <Empty description="暂无消息" />}
               {messages.map(m => (
                 <div key={m.id} style={{ marginBottom: 10, display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   <div style={{
                     maxWidth: '85%', padding: '8px 12px', borderRadius: 8,
-                    background: m.role === 'user' ? '#1677ff' : m.role === 'system' ? '#333' : '#262626',
-                    color: m.role === 'system' ? '#faad14' : '#e8e8e8',
-                    border: m.role === 'system' ? '1px solid #444' : 'none',
+                    background: m.role === 'user' ? '#1677ff' : m.role === 'system' ? token.colorFillSecondary : token.colorFillTertiary,
+                    color: m.role === 'system' ? token.colorWarning : token.colorText,
+                    border: m.role === 'system' ? `1px solid ${token.colorBorderSecondary}` : 'none',
                   }}>
-                    <Typography.Text style={{ color: '#888', fontSize: 10, display: 'block' }}>
+                    <Typography.Text style={{ color: token.colorTextSecondary, fontSize: 10, display: 'block' }}>
                       {m.role === 'user' ? '👤 你' : m.role === 'system' ? '⚡ 系统' : '🤖 AI'}
                       {' · '}{new Date(m.createdAt).toLocaleTimeString()}
                     </Typography.Text>
@@ -354,6 +358,7 @@ export default function SessionDetail() {
                       <ThinkingSection
                         thinking={m.thinking}
                         streaming={!thinkingDoneRef.current.has(m.id)}
+                        token={token}
                       />
                     )}
                     <div style={{ marginTop: 4, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 13 }}>
@@ -364,7 +369,7 @@ export default function SessionDetail() {
               ))}
               <div ref={chatEndRef} />
             </div>
-            <div style={{ padding: 12, borderTop: '1px solid #333', display: 'flex', gap: 8 }}>
+            <div style={{ padding: 12, borderTop: `1px solid ${token.colorBorderSecondary}`, display: 'flex', gap: 8 }}>
               <Input.TextArea
                 value={chatInput} onChange={e => setChatInput(e.target.value)}
                 placeholder="输入消息与 AI 对话... (Shift+Enter 换行)" rows={2}

@@ -5,7 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI Pipeline - 本地 Claude 流水线开发平台</title>
   </head>
-  <body>
+  <body style="background:#f5f5f5">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('app-theme') === 'dark' ? 'dark' : 'light';
+          document.body.dataset.theme = t;
+          document.body.style.background = t === 'dark' ? '#141414' : '#f5f5f5';
+        } catch (e) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
