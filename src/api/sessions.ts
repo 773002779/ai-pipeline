@@ -13,6 +13,7 @@ export const sessionApi = {
   cancel: (id: string) => api.post<Session>(`/sessions/${id}/cancel`),
   retry: (id: string) => api.post<Session>(`/sessions/${id}/retry`),
   clone: (id: string) => api.post<Session>(`/sessions/${id}/clone`),
+  delete: (id: string) => api.delete<void>(`/sessions/${id}`),
   getActionItems: (id: string) => api.get<ActionItem[]>(`/sessions/${id}/action-items`),
   getMessages: (id: string) => api.get<Message[]>(`/sessions/${id}/messages`),
   sendMessage: (id: string, content: string, stepId?: string) =>

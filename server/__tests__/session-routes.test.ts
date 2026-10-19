@@ -207,6 +207,66 @@ describe('Session start requires an active provider', () => {
   });
 });
 
+describe('DELETE /api/sessions/:id', () => {
+  it('删除会话及其关联记录（消息/步骤/用量/待办），重复删除返回 404', async () => {
+    const id = await createSession('删除测试');
+    sessionRepo.addMessage(id, null, 'user', '你好');
+    sessionRepo.addActionItem({ id: 'ai-del-1', sessionId: id, stepId: 'ps1', severity: 'warning', title: '注意', description: '', status: 'pending', createdAt: '2026-01-01T00:00:00.000Z' });
+    dbHelper.run(
+      `INSERT INTO usage_records (id, session_id, model, input_tokens, output_tokens) VALUES ('u-del-1', ?, 'm', 1, 2)`,
+      [id],
+    );
+
+    const res = await fetch(`${baseUrl}/api/sessions/${id}`, { method: 'DELETE' });
+    expect(res.status).toBe(200);
+    expect((await res.json()).success).toBe(true);
+
+    // 会话本身已不可见
+    const gone = await fetch(`${baseUrl}/api/sessions/${id}`);
+    expect(gone.status).toBe(404);
+
+    // 关联记录一并清除
+    const count = (table: string) =>
+      dbHelper.get<{ c: number }>(`SELECT COUNT(*) AS c FROM ${table} WHERE session_id = ?`, [id])!.c;
+    expect(count('messages')).toBe(0);
+    expect(count('session_steps')).toBe(0);
+    expect(count('usage_records')).toBe(0);
+    expect(count('action_items')).toBe(0);
+
+    const again = await fetch(`${baseUrl}/api/sessions/${id}`, { method: 'DELETE' });
+    expect(again.status).toBe(404);
+  });
+
+  it('运行中的会话拒绝删除（409），取消后可删除', async () => {
+    const id = await createSession('运行中删除');
+    sessionRepo.updateStatus(id, 'running');
+
+    const res = await fetch(`${baseUrl}/api/sessions/${id}`, { method: 'DELETE' });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.success).toBe(false);
+    expect(sessionRepo.getById(id)).not.toBeNull();
+
+    sessionRepo.updateStatus(id, 'cancelled');
+    const res2 = await fetch(`${baseUrl}/api/sessions/${id}`, { method: 'DELETE' });
+    expect(res2.status).toBe(200);
+  });
+
+  it('删除时释放等待中的权限请求', async () => {
+    const id = await createSession('删除释放权限');
+    const pending = waitForPermission('perm-route-delete', id);
+
+    const res = await fetch(`${baseUrl}/api/sessions/${id}`, { method: 'DELETE' });
+    expect(res.status).toBe(200);
+
+    const result = await Promise.race([
+      pending,
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('permission was not resolved on delete')), 1_000)),
+    ]);
+    expect(result.behavior).toBe('deny');
+  });
+});
+
 describe('chat 会话守卫', () => {
   it('chat 会话拒绝流水线操作（start 400）', async () => {
     ensureBuiltinChatPipeline(dbHelper);

@@ -295,6 +295,23 @@ export function createSessionRoutes(dbHelper: DbHelper, deps?: SessionRouteDeps)
     }
   });
 
+  // Delete — 只清除会话相关的数据库记录，不触碰磁盘上的项目文件
+  router.delete('/:id', (req: Request, res: Response) => {
+    try {
+      const session = sessionRepo.getById(req.params.id);
+      if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+      if (runningExecutors.has(session.id) || session.status === 'running') {
+        return res.status(409).json({ success: false, error: '会话正在运行，请先取消再删除' });
+      }
+      // Release any permission requests awaiting user confirmation
+      cancelSessionPermissions(session.id);
+      sessionRepo.deleteCascade(session.id);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ success: false, error: (err as Error).message });
+    }
+  });
+
   // Action items
   router.get('/:id/action-items', (req: Request, res: Response) => {
     try {

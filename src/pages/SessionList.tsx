@@ -34,6 +34,16 @@ export default function SessionList() {
     await sessionApi.cancel(id); message.success('已取消'); load();
   };
 
+  const handleDelete = async (id: string) => {
+    try {
+      await sessionApi.delete(id);
+      message.success('已删除（项目文件未受影响）');
+    } catch (err: any) {
+      message.error(err.message || '删除失败');
+    }
+    load();
+  };
+
   const columns = [
     { title: '名称', dataIndex: 'name', key: 'name',
       render: (n: string, r: Session) => <a onClick={() => navigate(`/sessions/${r.id}`)}>{n}</a> },
@@ -44,7 +54,7 @@ export default function SessionList() {
       render: (_: unknown, r: Session) => `${r.currentStepIndex}/${r.steps.length}` },
     { title: '更新时间', dataIndex: 'updatedAt', key: 'time', width: 160,
       render: (t: string) => new Date(t).toLocaleString() },
-    { title: '操作', key: 'actions', width: 180,
+    { title: '操作', key: 'actions', width: 220,
       render: (_: unknown, r: Session) => (
         <Space>
           <Button size="small" onClick={() => navigate(`/sessions/${r.id}`)}>查看</Button>
@@ -53,6 +63,13 @@ export default function SessionList() {
               <Button size="small" danger icon={<DeleteOutlined />}>取消</Button>
             </Popconfirm>
           )}
+          <Popconfirm
+            title="删除会话?"
+            description="仅删除会话记录（消息、步骤、用量），不影响项目文件。"
+            onConfirm={() => handleDelete(r.id)}
+          >
+            <Button size="small" danger>删除</Button>
+          </Popconfirm>
         </Space>
       ),
     },

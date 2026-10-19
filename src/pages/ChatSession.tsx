@@ -153,7 +153,7 @@ export default function ChatSession() {
     { value: 'clear', label: <div>🧹 <b>/clear</b> 清理上下文（重置模型记忆，保留聊天记录）</div> },
     { value: 'compact', label: <div>📦 <b>/compact</b> 压缩上下文（生成摘要后重新开始）</div> },
     ...skills.map(s => (
-      { value: s.name, label: <div>⚡ <b>/{s.name}</b>{s.description ? ` ${s.description}` : ''}</div> }
+      { value: s.name, label: <div>⚡ <b>/{s.name}</b></div> }
     )),
   ], [skills]);
 
