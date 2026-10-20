@@ -42,19 +42,38 @@ export default function ProviderManager() {
     setEditing(p ?? null);
     form.resetFields();
     form.setFieldsValue(p
-      ? { name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: '', temperature: p.temperature, maxTokens: p.maxTokens }
+      ? {
+          name: p.name, protocol: p.protocol, baseUrl: p.baseUrl, model: p.model, apiKey: '',
+          temperature: p.temperature, maxTokens: p.maxTokens,
+          headersText: Object.entries(p.headers ?? {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
+        }
       : { protocol: 'openai' });
     setEditorOpen(true);
   };
 
+  /** "Key: Value" 每行一条 → 对象；空文本 → {}（保存即清空自定义头） */
+  const parseHeadersText = (text?: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const line of (text || '').split('\n')) {
+      const idx = line.indexOf(':');
+      if (idx <= 0) continue;
+      const k = line.slice(0, idx).trim();
+      const v = line.slice(idx + 1).trim();
+      if (k) out[k] = v;
+    }
+    return out;
+  };
+
   const handleSave = async () => {
     try {
-      const values = (await form.validateFields()) as ProviderInput;
+      const values = (await form.validateFields()) as ProviderInput & { headersText?: string };
+      const { headersText, ...rest } = values;
+      const payload: ProviderInput = { ...rest, headers: parseHeadersText(headersText) };
       if (editing) {
-        await providerApi.update(editing.id, values);
+        await providerApi.update(editing.id, payload);
         message.success('已保存');
       } else {
-        await providerApi.create(values);
+        await providerApi.create(payload);
         message.success('已创建');
       }
       setEditorOpen(false);
@@ -167,6 +186,12 @@ export default function ProviderManager() {
             <Typography.Text code>{p.model}</Typography.Text>
             <Typography.Text type="secondary">Key:</Typography.Text>
             <Typography.Text code>{p.apiKey}</Typography.Text>
+            {p.headers && Object.keys(p.headers).length > 0 && (
+              <>
+                <Typography.Text type="secondary">自定义头:</Typography.Text>
+                <Typography.Text code>{Object.entries(p.headers).map(([k, v]) => `${k}: ${v}`).join('  ')}</Typography.Text>
+              </>
+            )}
           </Space>
           </Card>
         ))
@@ -207,6 +232,12 @@ export default function ProviderManager() {
               <InputNumber min={1} placeholder="可选" />
             </Form.Item>
           </Space>
+          <Form.Item
+            name="headersText" label="自定义请求头"
+            extra="每行一条，格式 Key: Value，随上游请求一起发送（如网关要求的 Type: chat）"
+          >
+            <Input.TextArea rows={3} placeholder={'Type: chat'} />
+          </Form.Item>
         </Form>
       </Modal>
 

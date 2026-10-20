@@ -294,6 +294,7 @@ export interface LlmProvider {
   model: string;            // 默认模型名，如 deepseek-chat
   temperature?: number;
   maxTokens?: number;
+  headers?: Record<string, string>;   // 自定义上游请求头（如网关要求的 Type: chat）
   isActive: boolean;
   source: ProviderSource;
   createdAt: string;

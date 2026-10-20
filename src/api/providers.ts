@@ -9,6 +9,7 @@ export interface ProviderInput {
   model: string;
   temperature?: number;
   maxTokens?: number;
+  headers?: Record<string, string>;
 }
 
 export interface TestResult {

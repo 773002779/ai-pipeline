@@ -68,3 +68,48 @@ models:
     expect(parseContinueConfig('name: x').errors[0]).toContain('models');
   });
 });
+
+describe('parseContinueConfig custom headers', () => {
+  it('parses requestOptions.headers into provider.headers', () => {
+    const yaml = `
+models:
+  - name: 企业网关
+    provider: openai
+    model: deepseek-r1
+    apiKey: sk-gw
+    apiBase: https://gw.example.com/v1
+    requestOptions:
+      headers:
+        Type: chat
+`;
+    const { providers } = parseContinueConfig(yaml);
+    expect(providers[0].headers).toEqual({ Type: 'chat' });
+  });
+
+  it('also accepts a top-level headers field and coerces values to strings', () => {
+    const yaml = `
+models:
+  - name: 网关2
+    provider: openai
+    model: m1
+    apiKey: k
+    headers:
+      Type: chat
+      X-Trace: 123
+`;
+    const { providers } = parseContinueConfig(yaml);
+    expect(providers[0].headers).toEqual({ Type: 'chat', 'X-Trace': '123' });
+  });
+
+  it('leaves headers undefined when the entry has none', () => {
+    const yaml = `
+models:
+  - name: 普通
+    provider: openai
+    model: m2
+    apiKey: k
+`;
+    const { providers } = parseContinueConfig(yaml);
+    expect(providers[0].headers).toBeUndefined();
+  });
+});

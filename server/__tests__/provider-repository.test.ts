@@ -105,3 +105,25 @@ describe('ProviderRepository', () => {
     expect(() => repo.create(makeProvider({ protocol: 'grpc' as never }))).toThrow();
   });
 });
+
+describe('ProviderRepository custom headers', () => {
+  it('persists and returns headers on create/get/list', () => {
+    const p = repo.create(makeProvider({ name: '带头', headers: { Type: 'chat' } }));
+    expect(repo.getById(p.id)?.headers).toEqual({ Type: 'chat' });
+    expect(repo.list().find(x => x.id === p.id)?.headers).toEqual({ Type: 'chat' });
+  });
+
+  it('updates headers (set and clear)', () => {
+    const p = repo.create(makeProvider({ name: '改头', headers: { Type: 'chat' } }));
+    repo.update(p.id, { headers: { 'X-Trace': '1' } });
+    expect(repo.getById(p.id)?.headers).toEqual({ 'X-Trace': '1' });
+    repo.update(p.id, { headers: {} });
+    expect(repo.getById(p.id)?.headers).toEqual({});
+  });
+
+  it('keeps headers when update omits them', () => {
+    const p = repo.create(makeProvider({ name: '保头', headers: { Type: 'chat' } }));
+    repo.update(p.id, { name: '改名' });
+    expect(repo.getById(p.id)?.headers).toEqual({ Type: 'chat' });
+  });
+});

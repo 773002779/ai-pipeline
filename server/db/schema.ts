@@ -175,4 +175,9 @@ export function createTables(db: SqlJsDatabase): void {
   } catch (_e) {
     // Column already exists — ignore
   }
+  try {
+    db.run("ALTER TABLE providers ADD COLUMN headers_json TEXT");
+  } catch (_e) {
+    // Column already exists — ignore
+  }
 }

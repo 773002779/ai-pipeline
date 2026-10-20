@@ -18,6 +18,7 @@ let baseUrl: string;
 let upstreamUrl: string;
 let repo: ProviderRepository;
 let continueYamlPath: string;
+let lastTestHeaders: http.IncomingHttpHeaders = {};
 
 beforeAll(async () => {
   db = await createMemoryDb();
@@ -27,7 +28,8 @@ beforeAll(async () => {
   // Mock OpenAI-protocol upstream for the /test endpoint
   const up = express();
   up.use(express.json());
-  up.post('/v1/chat/completions', (_req, res) => {
+  up.post('/v1/chat/completions', (req, res) => {
+    lastTestHeaders = req.headers;
     res.json({ id: 'cmpl-1', choices: [{ message: { content: 'pong' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
   });
   await new Promise<void>(r => { upstream = up.listen(0, () => r()); });
@@ -60,7 +62,7 @@ afterAll(() => {
   fs.rmSync(continueYamlPath, { force: true });
 });
 
-async function createProvider(body: Record<string, unknown>): Promise<{ id: string; apiKey: string }> {
+async function createProvider(body: Record<string, unknown>): Promise<{ id: string; apiKey: string; headers?: Record<string, string> }> {
   const res = await fetch(`${baseUrl}/api/providers`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ protocol: 'openai', model: 'gpt-test', apiKey: 'sk-secret-9999', ...body }),
@@ -157,5 +159,28 @@ describe('Provider routes', () => {
     expect(res.status).toBe(200);
     const got = await fetch(`${baseUrl}/api/providers/${p.id}`);
     expect(got.status).toBe(404);
+  });
+});
+
+describe('Provider test-connection custom headers', () => {
+  it('测试连接时透传供应商自定义请求头', async () => {
+    const p = await createProvider({ name: '带头测试', baseUrl: upstreamUrl, headers: { Type: 'chat' } });
+    const res = await fetch(`${baseUrl}/api/providers/${p.id}/test`, { method: 'POST' });
+    const body = await res.json();
+    expect(body.data.ok).toBe(true);
+    expect(lastTestHeaders['type']).toBe('chat');
+    expect(lastTestHeaders['authorization']).toBe('Bearer sk-secret-9999');
+  });
+
+  it('create/update 接受并返回 headers', async () => {
+    const p = await createProvider({ name: '带头CRUD', baseUrl: upstreamUrl, headers: { Type: 'chat' } });
+    expect(p.headers).toEqual({ Type: 'chat' });
+
+    const upd = await fetch(`${baseUrl}/api/providers/${p.id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ headers: { 'X-Trace': '1' } }),
+    });
+    const updBody = await upd.json();
+    expect(updBody.data.headers).toEqual({ 'X-Trace': '1' });
   });
 });

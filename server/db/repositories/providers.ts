@@ -14,10 +14,12 @@ export class ProviderRepository {
       this.db.run('UPDATE providers SET is_active = 0 WHERE is_active = 1');
     }
     this.db.run(
-      `INSERT INTO providers (id, name, protocol, base_url, api_key, model, temperature, max_tokens, is_active, source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO providers (id, name, protocol, base_url, api_key, model, temperature, max_tokens, headers_json, is_active, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, provider.name, provider.protocol, provider.baseUrl, provider.apiKey, provider.model,
-        provider.temperature ?? null, provider.maxTokens ?? null, provider.isActive ? 1 : 0,
+        provider.temperature ?? null, provider.maxTokens ?? null,
+        provider.headers ? JSON.stringify(provider.headers) : null,
+        provider.isActive ? 1 : 0,
         provider.source, now, now]
     );
     return provider;
@@ -44,9 +46,11 @@ export class ProviderRepository {
       this.db.run('UPDATE providers SET is_active = 0 WHERE id != ?', [id]);
     }
     this.db.run(
-      `UPDATE providers SET name=?, protocol=?, base_url=?, api_key=?, model=?, temperature=?, max_tokens=?, is_active=?, source=?, updated_at=? WHERE id=?`,
+      `UPDATE providers SET name=?, protocol=?, base_url=?, api_key=?, model=?, temperature=?, max_tokens=?, headers_json=?, is_active=?, source=?, updated_at=? WHERE id=?`,
       [merged.name, merged.protocol, merged.baseUrl, merged.apiKey, merged.model,
-        merged.temperature ?? null, merged.maxTokens ?? null, merged.isActive ? 1 : 0,
+        merged.temperature ?? null, merged.maxTokens ?? null,
+        merged.headers ? JSON.stringify(merged.headers) : null,
+        merged.isActive ? 1 : 0,
         merged.source, merged.updatedAt, id]
     );
     return merged;
@@ -76,6 +80,11 @@ export class ProviderRepository {
 
   private rowToProvider(row: Record<string, unknown> | undefined): LlmProvider | null {
     if (!row) return null;
+    let headers: Record<string, string> | undefined;
+    try {
+      const parsed = row['headers_json'] ? JSON.parse(row['headers_json'] as string) : undefined;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) headers = parsed;
+    } catch { /* 畸形 JSON 视为未配置 */ }
     return {
       id: row['id'] as string,
       name: row['name'] as string,
@@ -85,6 +94,7 @@ export class ProviderRepository {
       model: row['model'] as string,
       temperature: (row['temperature'] as number) ?? undefined,
       maxTokens: (row['max_tokens'] as number) ?? undefined,
+      headers,
       isActive: row['is_active'] === 1,
       source: row['source'] as LlmProvider['source'],
       createdAt: row['created_at'] as string,
